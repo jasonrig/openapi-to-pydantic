@@ -25,7 +25,14 @@ class Mismatch:
 
 
 def normalize_source_schema(schema: JSONObject) -> MutableJSONObject:
-    """Normalize source schema from OpenAPI for comparison."""
+    """Normalize source schema from OpenAPI for comparison.
+
+    Args:
+        schema (JSONObject): Source schema extracted from OpenAPI.
+
+    Returns:
+        MutableJSONObject: Normalized source schema.
+    """
     normalized: JSONValue = deepcopy(dict(schema))
     normalized = _normalize_nullable(normalized)
     normalized = _normalize_all_of(normalized)
@@ -33,7 +40,14 @@ def normalize_source_schema(schema: JSONObject) -> MutableJSONObject:
 
 
 def normalize_generated_schema(schema: JSONObject) -> MutableJSONObject:
-    """Normalize pydantic-generated schema for comparison."""
+    """Normalize pydantic-generated schema for comparison.
+
+    Args:
+        schema (JSONObject): Schema emitted by a generated pydantic model.
+
+    Returns:
+        MutableJSONObject: Normalized generated schema.
+    """
     normalized: JSONValue = deepcopy(dict(schema))
     normalized = _inline_local_refs(normalized)
     if isinstance(normalized, dict):
@@ -47,7 +61,16 @@ def normalize_generated_schema(schema: JSONObject) -> MutableJSONObject:
 def subset_mismatch(
     expected: JSONValue, actual: JSONValue, *, path: str = "$"
 ) -> Optional[Mismatch]:
-    """Return first mismatch where expected is not a subset of actual."""
+    """Return first mismatch where expected is not a subset of actual.
+
+    Args:
+        expected (JSONValue): Expected schema fragment.
+        actual (JSONValue): Actual schema fragment.
+        path (str): Current JSONPath-like location for mismatch reporting.
+
+    Returns:
+        Optional[Mismatch]: First detected mismatch, if any.
+    """
     if isinstance(expected, dict):
         return _dict_subset_mismatch(expected, actual, path=path)
 

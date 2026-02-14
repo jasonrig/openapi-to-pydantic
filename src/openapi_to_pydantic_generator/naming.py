@@ -29,7 +29,15 @@ _PATH_PARAM_RE = re.compile(r"^\{(?P<name>[^{}]+)\}$")
 
 
 def sanitize_identifier(raw: str, *, lowercase: bool = True) -> str:
-    """Convert arbitrary text into a valid Python identifier."""
+    """Convert arbitrary text into a valid Python identifier.
+
+    Args:
+        raw (str): Source text to normalize.
+        lowercase (bool): Whether to lowercase the input before sanitization.
+
+    Returns:
+        str: Sanitized identifier.
+    """
     text = raw.lower() if lowercase else raw
     text = _IDENTIFIER_SANITIZE_RE.sub("_", text)
     text = _MULTIPLE_UNDERSCORES_RE.sub("_", text).strip("_")
@@ -43,7 +51,14 @@ def sanitize_identifier(raw: str, *, lowercase: bool = True) -> str:
 
 
 def path_to_endpoint_name(path: str) -> str:
-    """Create endpoint name using the agreed path-based naming rules."""
+    """Create endpoint name using the agreed path-based naming rules.
+
+    Args:
+        path (str): OpenAPI path template.
+
+    Returns:
+        str: Path-based endpoint identifier.
+    """
     segments = [segment for segment in path.split("/") if segment]
     normalized_segments: list[str] = []
     for segment in segments:
@@ -114,7 +129,14 @@ def _conflicting_operation_ids(candidates: list[_OperationCandidate]) -> set[str
 def resolve_operations(
     raw_paths: dict[str, JSONObject],
 ) -> tuple[list[OperationSpec], list[str]]:
-    """Extract operations and determine endpoint names with hybrid operationId fallback."""
+    """Extract operations and resolve endpoint names.
+
+    Args:
+        raw_paths (dict[str, JSONObject]): Raw OpenAPI `paths` mapping.
+
+    Returns:
+        tuple[list[OperationSpec], list[str]]: Resolved operations and warning messages.
+    """
     candidates = _collect_operation_candidates(raw_paths)
     conflicting_ids = _conflicting_operation_ids(candidates)
 
@@ -147,6 +169,13 @@ def resolve_operations(
 
 
 def class_name(raw: str) -> str:
-    """Convert a name to PascalCase class name."""
+    """Convert a name to a PascalCase class name.
+
+    Args:
+        raw (str): Source name.
+
+    Returns:
+        str: PascalCase class name.
+    """
     clean = sanitize_identifier(raw)
     return "".join(part.capitalize() for part in clean.split("_") if part) or "Model"

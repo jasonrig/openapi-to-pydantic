@@ -35,13 +35,24 @@ class Resolver:
     """Resolve local references and build endpoint section schemas."""
 
     def __init__(self, document: JSONObject) -> None:
-        """Initialize resolver state for one OpenAPI document."""
+        """Initialize resolver state for one OpenAPI document.
+
+        Args:
+            document (JSONObject): Loaded OpenAPI document.
+        """
         self._document = deepcopy(document)
         self._cache: dict[str, JSONValue] = {}
         self._cycle_cache: set[str] = set()
 
     def resolve_node(self, node: JSONValue) -> JSONValue:
-        """Recursively inline references in a node."""
+        """Recursively inline references in a node.
+
+        Args:
+            node (JSONValue): JSON-like node that may contain `$ref` values.
+
+        Returns:
+            JSONValue: Resolved node with local references inlined.
+        """
         return self._resolve(node, stack=())
 
     def _resolve(self, node: JSONValue, stack: tuple[str, ...]) -> JSONValue:
@@ -89,7 +100,14 @@ class Resolver:
         return resolved
 
     def build_section_schemas(self, operation_spec: OperationSpec) -> SectionSchemas:
-        """Build all section schemas for a single operation."""
+        """Build all section schemas for a single operation.
+
+        Args:
+            operation_spec (OperationSpec): Operation metadata and raw OpenAPI nodes.
+
+        Returns:
+            SectionSchemas: Resolved section schemas for the operation.
+        """
         path_params = self._collect_parameters(operation_spec.path_item)
         operation_params = self._collect_parameters(operation_spec.operation)
         merged_params = [*path_params, *operation_params]

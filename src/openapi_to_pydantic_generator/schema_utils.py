@@ -10,7 +10,14 @@ from .json_types import JSONObject, JSONValue, MutableJSONObject
 
 
 def is_object_schema(schema: JSONObject) -> bool:
-    """Return True when schema behaves as an object schema."""
+    """Return whether a schema behaves as an object schema.
+
+    Args:
+        schema (JSONObject): Schema node to inspect.
+
+    Returns:
+        bool: Whether object modeling rules should apply.
+    """
     schema_type = schema.get("type")
     if schema_type == "object":
         return True
@@ -29,7 +36,16 @@ def merge_all_of_schema(
     *,
     normalize_item: Optional[Callable[[MutableJSONObject], MutableJSONObject]] = None,
 ) -> MutableJSONObject:
-    """Merge object-only allOf chains into a single object schema when possible."""
+    """Merge object-only `allOf` chains into one object schema when possible.
+
+    Args:
+        schema (JSONObject): Schema that may contain an `allOf` chain.
+        normalize_item (Optional[Callable[[MutableJSONObject], MutableJSONObject]]):
+            Optional normalization callback applied to each child before merge.
+
+    Returns:
+        MutableJSONObject: Merged object schema, or the original schema shape.
+    """
     all_of = schema.get("allOf")
     if not isinstance(all_of, list) or not all_of:
         return deepcopy(dict(schema))

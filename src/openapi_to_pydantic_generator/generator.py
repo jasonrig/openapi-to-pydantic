@@ -40,7 +40,16 @@ def run_generation(
     output_dir: Path,
     verify: bool,
 ) -> GenerationRun:
-    """Generate models from an OpenAPI document."""
+    """Generate endpoint-scoped models from an OpenAPI document.
+
+    Args:
+        input_path (Path): Path to the input OpenAPI document.
+        output_dir (Path): Directory where generated files are written.
+        verify (bool): Whether to run schema verification after generation.
+
+    Returns:
+        GenerationRun: Generation metadata and optional verification report.
+    """
     operations, warnings, resolver, converter, models_dir = _prepare_generation(
         input_path=input_path,
         output_dir=output_dir,

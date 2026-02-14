@@ -15,7 +15,14 @@ class WriteError(RuntimeError):
 
 
 def create_output_layout(output_dir: Path) -> Path:
-    """Create output directory and root models package."""
+    """Create output directory and root models package.
+
+    Args:
+        output_dir (Path): Root output directory to create.
+
+    Returns:
+        Path: Path to the created `models` directory.
+    """
     if output_dir.exists():
         raise WriteError(f"Output directory already exists: {output_dir}")
 
@@ -32,7 +39,14 @@ def write_operation_sections(
     method: str,
     sections: list[SectionModel],
 ) -> None:
-    """Write section modules for one endpoint method."""
+    """Write section modules for one endpoint method.
+
+    Args:
+        models_dir (Path): Root generated models directory.
+        endpoint_name (str): Endpoint package name.
+        method (str): HTTP method name.
+        sections (list[SectionModel]): Section models to render and write.
+    """
     endpoint_dir = models_dir / endpoint_name
     method_dir = endpoint_dir / method
     endpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -48,7 +62,11 @@ def write_operation_sections(
 
 
 def format_generated_tree(*, models_dir: Path) -> None:
-    """Run ruff auto-fixes and formatter against generated model files."""
+    """Run Ruff auto-fixes and formatter against generated model files.
+
+    Args:
+        models_dir (Path): Generated models directory to format.
+    """
     _run_ruff(
         models_dir=models_dir,
         args=(

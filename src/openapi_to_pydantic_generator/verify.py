@@ -49,7 +49,15 @@ def verify_models(
     items: list[VerificationItem],
     output_dir: Path,
 ) -> VerificationReport:
-    """Verify generated model JSON schemas against normalized source schemas."""
+    """Verify generated model schemas against normalized source schemas.
+
+    Args:
+        items (list[VerificationItem]): Verification targets to compare.
+        output_dir (Path): Root output directory containing generated modules.
+
+    Returns:
+        VerificationReport: Aggregate verification report with mismatch details.
+    """
     mismatches: list[VerificationMismatch] = []
 
     for item in items:
@@ -93,7 +101,14 @@ def verify_models(
 
 
 def format_report(report: VerificationReport) -> str:
-    """Render report as CLI output text."""
+    """Render a verification report as CLI output text.
+
+    Args:
+        report (VerificationReport): Verification report to format.
+
+    Returns:
+        str: Human-readable multiline report text.
+    """
     lines = [
         f"Verified models: {report.verified_count}",
         f"Mismatches: {report.mismatch_count}",
@@ -146,7 +161,15 @@ def _to_mismatch(*, item: VerificationItem, mismatch: Mismatch) -> VerificationM
 
 
 def short_repr(value: JSONValue, *, limit: int = 160) -> str:
-    """Return a short representation for mismatch diagnostics."""
+    """Return a short representation for mismatch diagnostics.
+
+    Args:
+        value (JSONValue): Value to render.
+        limit (int): Maximum output length.
+
+    Returns:
+        str: Truncated representation string.
+    """
     text = repr(value)
     return text if len(text) <= limit else f"{text[: limit - 3]}..."
 

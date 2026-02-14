@@ -16,7 +16,14 @@ class OpenAPILoadError(RuntimeError):
 
 
 def load_openapi_document(path: Path) -> JSONObject:
-    """Load and validate an OpenAPI document from YAML."""
+    """Load and validate an OpenAPI document from YAML.
+
+    Args:
+        path (Path): Path to the input OpenAPI YAML document.
+
+    Returns:
+        JSONObject: Parsed and validated OpenAPI document.
+    """
     try:
         with path.open("r", encoding="utf-8") as handle:
             payload = yaml.safe_load(handle)
@@ -40,7 +47,14 @@ def load_openapi_document(path: Path) -> JSONObject:
 
 
 def get_openapi_version(document: JSONObject) -> str:
-    """Return the declared OpenAPI version string."""
+    """Return the declared OpenAPI version string.
+
+    Args:
+        document (JSONObject): Loaded OpenAPI document.
+
+    Returns:
+        str: Normalized OpenAPI version string.
+    """
     version = document.get("openapi")
     if not isinstance(version, str) or not version.strip():
         raise OpenAPILoadError("Missing or invalid 'openapi' version field")
@@ -48,7 +62,11 @@ def get_openapi_version(document: JSONObject) -> str:
 
 
 def ensure_supported_version(version: str) -> None:
-    """Validate that the input version is OpenAPI v3+."""
+    """Validate that the input version is OpenAPI v3+.
+
+    Args:
+        version (str): OpenAPI version string from the source document.
+    """
     major_text = version.split(".", maxsplit=1)[0]
     try:
         major = int(major_text)

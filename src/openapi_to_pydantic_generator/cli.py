@@ -15,7 +15,13 @@ class VerificationMismatchError(RuntimeError):
 
 
 def _run_cli(input_path: Path, output_path: Path, verify: bool) -> None:
-    """Run CLI."""
+    """Run CLI generation and optional verification.
+
+    Args:
+        input_path (Path): Path to the input OpenAPI document.
+        output_path (Path): Output directory for generated artifacts.
+        verify (bool): Whether to run schema verification after generation.
+    """
     run = run_generation(
         input_path=input_path,
         output_dir=output_path,

@@ -25,7 +25,14 @@ _PYDANTIC_IMPORT_ORDER: tuple[str, ...] = (
 
 
 def render_section_module(section: SectionModel) -> str:
-    """Render section models as Python source code using AST."""
+    """Render section models as Python source code using AST.
+
+    Args:
+        section (SectionModel): Section model definition to render.
+
+    Returns:
+        str: Generated Python source code for the section.
+    """
     body: list[ast.stmt] = [
         ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0),
     ]

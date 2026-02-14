@@ -32,21 +32,37 @@ class ProjectRulesChecker(BaseChecker):
     }
 
     def visit_annassign(self, node: nodes.AnnAssign) -> None:
-        """Validate annotation style for annotated assignments."""
+        """Validate annotation style for annotated assignments.
+
+        Args:
+            node (nodes.AnnAssign): Assignment node to inspect.
+        """
         self._check_annotation(node.annotation)
 
     def visit_arguments(self, node: nodes.Arguments) -> None:
-        """Validate annotation style for function arguments."""
+        """Validate annotation style for function arguments.
+
+        Args:
+            node (nodes.Arguments): Function arguments node to inspect.
+        """
         for annotation in self._iter_argument_annotations(node):
             self._check_annotation(annotation)
 
     def visit_functiondef(self, node: nodes.FunctionDef) -> None:
-        """Validate annotation style for function return type."""
+        """Validate annotation style for function return type.
+
+        Args:
+            node (nodes.FunctionDef): Function definition node to inspect.
+        """
         if node.returns is not None:
             self._check_annotation(node.returns)
 
     def visit_asyncfunctiondef(self, node: nodes.AsyncFunctionDef) -> None:
-        """Validate annotation style for async function return type."""
+        """Validate annotation style for async function return type.
+
+        Args:
+            node (nodes.AsyncFunctionDef): Async function definition node to inspect.
+        """
         if node.returns is not None:
             self._check_annotation(node.returns)
 
@@ -92,5 +108,9 @@ def _is_none_literal(node: nodes.NodeNG) -> bool:
 
 
 def register(linter: PyLinter) -> None:
-    """Register checker."""
+    """Register checker.
+
+    Args:
+        linter (PyLinter): Pylint linter instance.
+    """
     linter.register_checker(ProjectRulesChecker(linter))

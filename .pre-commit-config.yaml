@@ -16,7 +16,19 @@ repos:
     rev: 0.8.3
     hooks:
       - id: pydoclint
-        args: [--style=google, --check-return-types=False, --allow-init-docstring=True]
+        files: ^src/
+        args:
+          [
+            --style=google,
+            --check-arg-order=True,
+            --ignore-private-args=False,
+            --should-document-star-arguments=True,
+            --check-return-types=False,
+            --allow-init-docstring=True,
+            --skip-checking-short-docstrings=False,
+            --skip-checking-raises=True,
+            --check-class-attributes=False,
+          ]
   - repo: local
     hooks:
       - id: pylint

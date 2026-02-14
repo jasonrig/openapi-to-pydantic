@@ -121,7 +121,11 @@ class SchemaConverter:
     """Create pydantic model definitions from resolved schema nodes."""
 
     def __init__(self, openapi_version: str) -> None:
-        """Store OpenAPI version for version-specific schema handling."""
+        """Store OpenAPI version for version-specific schema handling.
+
+        Args:
+            openapi_version (str): Source OpenAPI version string.
+        """
         self._openapi_version = openapi_version
 
     def build_section_from_schema(
@@ -131,7 +135,16 @@ class SchemaConverter:
         root_class_name: str,
         schema: JSONObject,
     ) -> SectionModel:
-        """Build models for a single section schema."""
+        """Build models for a single section schema.
+
+        Args:
+            section_name (str): Logical section name (for example `body`).
+            root_class_name (str): Desired root model class name.
+            schema (JSONObject): Resolved schema for the section.
+
+        Returns:
+            SectionModel: Section model set containing the root and nested models.
+        """
         context = _SectionContext()
         normalized_schema = self._normalize_nullable(deepcopy(dict(schema)))
 
@@ -165,7 +178,16 @@ class SchemaConverter:
         root_class_name: str,
         schemas_by_status: Mapping[str, JSONObject],
     ) -> SectionModel:
-        """Build models for response and error sections with multiple status codes."""
+        """Build models for sections keyed by HTTP status code.
+
+        Args:
+            section_name (str): Logical section name (for example `response`).
+            root_class_name (str): Desired root model class name.
+            schemas_by_status (Mapping[str, JSONObject]): Schemas keyed by status code.
+
+        Returns:
+            SectionModel: Section model set containing per-status and union models.
+        """
         context = _SectionContext()
         ordered_statuses = sorted(schemas_by_status)
 
@@ -800,12 +822,26 @@ class SchemaConverter:
 
 
 def safe_literal(value: JSONValue) -> str:
-    """Return a safe literal representation for annotation contexts."""
+    """Return a safe literal representation for annotation contexts.
+
+    Args:
+        value (JSONValue): Value to represent.
+
+    Returns:
+        str: Literal string form safe to embed in generated code.
+    """
     return repr(value)
 
 
 def sanitize_json_schema_extra(value: JSONValue) -> JSONValue:
-    """Drop external refs in json_schema_extra payloads to keep pydantic schema generation valid."""
+    """Drop external refs in schema metadata payloads.
+
+    Args:
+        value (JSONValue): Raw JSON-schema metadata value.
+
+    Returns:
+        JSONValue: Sanitized metadata value without unsupported `$ref` entries.
+    """
     if isinstance(value, dict):
         sanitized: MutableJSONObject = {}
         for key, item in value.items():

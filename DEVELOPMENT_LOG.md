@@ -17,3 +17,8 @@
 - Decision on `__pydantic_extra__` annotation:
 - Chosen approach: keep `__pydantic_extra__` annotation in PEP 604 form for runtime evaluation stability, and preserve typed `additionalProperties` via `model_config.json_schema_extra` when the source uses schema-valued `additionalProperties`.
 - Alternative considered: using richer `Optional`/`Annotated`-based value annotations in `__pydantic_extra__`; rejected because Pydantic resolves that special annotation in class namespace and raised `NameError` for typing symbols during model construction on real fixtures.
+- Verification policy updated: fixture verification now fails on any mismatch (`mismatch_count > 0`) with detailed mismatch previews in test output.
+- Alternative considered: keep verification non-blocking for large fixtures; rejected because acceptance requires zero semantic mismatches.
+- Quality policy updated: removed broad pylint ignores and refactored complexity hotspots until `pylint` is clean without those suppressions.
+- Refactor decision: extracted shared schema helpers into `schema_utils.py` (`deep_copy_json`, `is_object_schema`, `merge_all_of_schema`) to support reuse and reduce duplicate logic across normalization and conversion.
+- Alternative considered: keep duplicate local helpers in each module; rejected because it increased lint complexity and maintenance cost.

@@ -1,5 +1,8 @@
 # OpenAPI to Pydantic Generator
 
+> [!WARNING]
+> Slop warning: this project was generated entirely by AI. Use at your own risk.
+
 Generate endpoint-scoped Pydantic v2 models from OpenAPI v3+ documents.
 
 The generator reads an OpenAPI YAML file, resolves local `$ref` values, and emits a Python package under `models/` with per-endpoint/per-method modules for:

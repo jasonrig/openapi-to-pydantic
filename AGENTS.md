@@ -1,93 +1,66 @@
 # AGENTS.md
 
-## Guiding Principles
-- Prefer clarity and correctness over cleverness.
-- Keep changes small, focused, and easy to review.
-- Preserve existing behavior unless the task explicitly requires change.
-- Optimize for maintainability and readable code.
-- Make decisions explicit; document assumptions when needed.
+## Purpose
+- Build and maintain an OpenAPI-to-Pydantic generator with deterministic, test-driven behavior.
+- Prioritize correctness, readability, and maintainability over clever shortcuts.
 
-## Code Style and Structure
-- Write straightforward, human-readable code.
-- Use descriptive names for functions, variables, and modules.
-- Keep functions short and single-purpose.
-- Avoid unnecessary abstraction.
-- Do not duplicate logic when a small shared helper suffices.
+## Project Scope
+- Support OpenAPI `3.x` and above.
+- Generate endpoint-scoped Pydantic models from OpenAPI schemas.
+- Preserve schema intent in generated models (including nullability/default handling).
+- Verify generated schema behavior against normalized source schemas.
 
-## Typing and Mypy
-- All new code should be type-annotated.
-- Avoid using `Any` or `object` unless the input truly has no known shape.
-- Prefer `Optional[T]` over `T | None` if the project convention requires it.
-- Run `mypy` on relevant code paths; fix errors rather than silencing them.
-- Do not ignore or suppress type errors unless there is a clear, documented justification.
+## Core Workflow
+- Use the test harness first; avoid one-off scripts unless a test cannot provide the needed signal.
+- Add/adjust tests when behavior changes.
+- Keep changes small and logically grouped.
+- Commit frequently at stable checkpoints.
 
-## Formatting and Linting
-- Use `ruff format` for formatting.
-- Use `ruff` for linting whenever possible.
-- Use `pylint` to catch issues not covered by `ruff`.
-- Keep imports clean and ordered; remove unused imports.
-- Prefer explicitness over implicit behavior when it improves readability.
+## Non-Negotiable Rules
+- Never modify fixtures to make tests pass.
+- Never manually edit generated artifacts.
+- Never bypass pre-commit hooks.
+- Never suppress lint/type issues without explicit approval.
+- Do not use `Any` or `object` as a shortcut type.
+- Prefer `Optional[T]` over `T | None`.
 
-## Testing
-- Add or update tests when behavior changes.
-- Keep tests deterministic and fast.
-- Prefer `pytest` for new tests.
-- Tests should verify externally observable behavior, not implementation details.
-- Avoid brittle or overly coupled tests.
+## Code Generation Rules
+- Generate Python code via `ast` (no handwritten source-template hacks for model modules).
+- Keep generated package docs useful for humans and coding agents:
+  - Endpoint package `__init__.py` must document original paths and per-method/per-section model usage.
+  - Root `models/__init__.py` must provide a package-level index.
+  - Use relative module notation in docs (for example, `.users.get.response`).
+- Run Ruff on generated output as part of generation.
 
-## Dependency Management and `uv`
-- Use `uv` for all dependency operations and tool execution.
-- Add runtime dependencies with `uv add`.
-- Add development dependencies with `uv add --dev`.
-- Run tools through `uv run` to ensure consistent environments.
-- Do not edit `uv.lock` manually.
-- Never use `pip` or `uv pip`.
+## Typing and Style
+- All new code must be fully type-annotated.
+- Use `Mapping` where mutable dictionary behavior is not required.
+- Keep functions focused and names explicit.
+- Follow Google-style docstrings in `src/`.
+- Public interfaces should document arguments; keep docstrings synchronized with signatures.
 
-## Documentation
-- Keep documentation accurate and up to date with behavior.
-- Document non-obvious decisions or tradeoffs.
-- Avoid documenting implementation details that are likely to change.
-- Public module-level functions, classes, and public class methods in `src/` must use Google-style docstrings.
-- Docstrings must include argument documentation that matches signature names and order.
-- Do not rely on short single-line docstrings to bypass argument documentation checks.
-
-## Git and Change Management
-- Keep commits focused and logically grouped.
-- Commit changes progressively to allow for easy rollback.
-- Do not mix refactors with behavior changes unless necessary.
-- Avoid rewriting history unless explicitly requested.
-- Commit frequently in small logical chunks while implementing.
-- Once a stable checkpoint exists, commit before starting the next logical unit of work.
-- Avoid carrying large uncommitted deltas across multiple unrelated tasks.
-
-## Delivery Workflow
-- Use the test harness as the primary driver for implementation.
-- Prefer adding or tightening tests first, then implement only what is needed to satisfy failing tests.
-- Keep failure diagnostics in tests actionable (include expected/actual context for schema mismatches).
-- Prefer harness-driven debugging over one-off custom scripts; use ad-hoc scripts only when the harness cannot provide the needed signal.
-
-## Execution Enforcement
-- Commit checkpoint rule: commit before starting the next logical unit of work once the current unit reaches a stable checkpoint.
-- Progress status rule: every substantial progress update must include current goal, current gate result, and latest commit hash.
-- Dirty tree limit rule: if more than 5 files are modified, stop and either commit a stable chunk or explicitly report the blocker and recovery plan.
-- Completion rule: do not claim completion unless all gates pass in the working tree:
+## Tooling
+- Use `uv` for all dependency and execution tasks.
+- Recommended local gate order:
+  1. `uv run pre-commit run --all-files`
+  2. `uv run pytest -q`
+- If running individual tools, use:
   - `uv run ruff check .`
+  - `uv run ruff format .`
   - `uv run mypy src tests`
   - `uv run pylint src tests`
-  - `uv run pytest -q`
-- Audit response rule: on request, immediately provide `git status --short` and `git log --oneline -n 5`.
+  - `uv run pydoclint --style=google src`
 
-## Generated Artifacts
-- Do not manually edit generated files.
-- If changes are needed, update the generator or source of truth.
-- Clearly separate generated output from source code.
+## Testing Strategy
+- Fixture discovery is automatic from `tests/fixtures/openapi_specs`.
+- Treat fixture verification failures as product regressions unless proven to be invalid fixture data.
+- Keep tests deterministic and focused on observable behavior.
+- Include regression tests for normalization edge cases.
 
 ## Error Handling
-- Handle errors explicitly where failures are expected.
-- Avoid silent failure.
-- Prefer clear error messages that help users resolve issues.
+- Fail loudly with informative exception messages.
+- Avoid silent fallbacks that hide root causes.
 
-## Security and Safety
-- Validate inputs when appropriate.
-- Avoid unsafe operations in build or test scripts.
-- Do not introduce destructive operations unless explicitly required.
+## Decision Logging
+- If multiple valid approaches exist, choose one pragmatically.
+- Record notable tradeoffs and rationale in `DEVELOPMENT_LOG.md`.

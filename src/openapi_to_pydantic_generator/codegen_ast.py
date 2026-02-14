@@ -15,6 +15,7 @@ def render_section_module(section: SectionModel) -> str:
         ast.ImportFrom(
             module="typing",
             names=[
+                ast.alias(name="Any"),
                 ast.alias(name="Annotated"),
                 ast.alias(name="Literal"),
                 ast.alias(name="Optional"),
@@ -57,20 +58,23 @@ def _model_to_ast(model: ModelDef) -> ast.ClassDef:
     else:
         bases = [ast.Name(id="BaseModel", ctx=ast.Load())]
 
+    model_config = model.config
     class_body: list[ast.stmt] = []
-    if model.docstring:
-        class_body.append(ast.Expr(value=ast.Constant(value=model.docstring)))
+    if model_config.docstring:
+        class_body.append(ast.Expr(value=ast.Constant(value=model_config.docstring)))
 
     config_keywords: list[ast.keyword] = []
-    if model.title:
-        config_keywords.append(ast.keyword(arg="title", value=ast.Constant(value=model.title)))
-    if model.extra_behavior:
+    if model_config.title:
         config_keywords.append(
-            ast.keyword(arg="extra", value=ast.Constant(value=model.extra_behavior))
+            ast.keyword(arg="title", value=ast.Constant(value=model_config.title))
         )
-    if model.schema_extra:
+    if model_config.extra_behavior:
         config_keywords.append(
-            ast.keyword(arg="json_schema_extra", value=_value_expr(model.schema_extra))
+            ast.keyword(arg="extra", value=ast.Constant(value=model_config.extra_behavior))
+        )
+    if model_config.schema_extra:
+        config_keywords.append(
+            ast.keyword(arg="json_schema_extra", value=_value_expr(model_config.schema_extra))
         )
     if config_keywords:
         class_body.append(
@@ -85,11 +89,11 @@ def _model_to_ast(model: ModelDef) -> ast.ClassDef:
         )
 
     if not model.is_root:
-        if model.additional_properties_annotation:
+        if model_config.additional_properties_annotation:
             class_body.append(
                 ast.AnnAssign(
                     target=ast.Name(id="__pydantic_extra__", ctx=ast.Store()),
-                    annotation=_expr(model.additional_properties_annotation),
+                    annotation=_expr(model_config.additional_properties_annotation),
                     value=ast.Call(
                         func=ast.Name(id="Field", ctx=ast.Load()),
                         args=[],

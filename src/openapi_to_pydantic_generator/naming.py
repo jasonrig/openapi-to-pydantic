@@ -5,6 +5,7 @@ from __future__ import annotations
 import keyword
 import re
 from collections import Counter
+from dataclasses import dataclass
 
 from .model_types import OperationSpec
 
@@ -62,11 +63,19 @@ def _operation_id_candidate(operation_id: str) -> str:
     return sanitize_identifier(operation_id)
 
 
-def resolve_operations(
+@dataclass(frozen=True)
+class _OperationCandidate:
+    path: str
+    method: str
+    operation: dict[str, object]
+    path_item: dict[str, object]
+    operation_id: str | None
+
+
+def _collect_operation_candidates(
     raw_paths: dict[str, dict[str, object]],
-) -> tuple[list[OperationSpec], list[str]]:
-    """Extract operations and determine endpoint names with hybrid operationId fallback."""
-    operations: list[tuple[str, str, dict[str, object], dict[str, object], str | None]] = []
+) -> list[_OperationCandidate]:
+    candidates: list[_OperationCandidate] = []
     for path, path_item_untyped in raw_paths.items():
         if not isinstance(path_item_untyped, dict):
             continue
@@ -75,15 +84,37 @@ def resolve_operations(
             operation_untyped = path_item.get(method)
             if not isinstance(operation_untyped, dict):
                 continue
-            operation_id_raw = operation_untyped.get("operationId")
-            operation_id: str | None = None
-            if isinstance(operation_id_raw, str) and operation_id_raw.strip():
-                operation_id = _operation_id_candidate(operation_id_raw.strip())
-            operations.append((path, method, operation_untyped, path_item, operation_id))
+            operation_id = _normalize_operation_id(operation_untyped.get("operationId"))
+            candidates.append(
+                _OperationCandidate(
+                    path=path,
+                    method=method,
+                    operation=operation_untyped,
+                    path_item=path_item,
+                    operation_id=operation_id,
+                )
+            )
+    return candidates
 
-    operation_ids = [item[4] for item in operations if item[4] is not None]
+
+def _normalize_operation_id(operation_id_raw: object) -> str | None:
+    if isinstance(operation_id_raw, str) and operation_id_raw.strip():
+        return _operation_id_candidate(operation_id_raw.strip())
+    return None
+
+
+def _conflicting_operation_ids(candidates: list[_OperationCandidate]) -> set[str]:
+    operation_ids = [candidate.operation_id for candidate in candidates if candidate.operation_id]
     counts = Counter(operation_ids)
-    conflicting_ids = {name for name, count in counts.items() if count > 1}
+    return {name for name, count in counts.items() if count > 1}
+
+
+def resolve_operations(
+    raw_paths: dict[str, dict[str, object]],
+) -> tuple[list[OperationSpec], list[str]]:
+    """Extract operations and determine endpoint names with hybrid operationId fallback."""
+    candidates = _collect_operation_candidates(raw_paths)
+    conflicting_ids = _conflicting_operation_ids(candidates)
 
     warnings: list[str] = []
     if conflicting_ids:
@@ -94,18 +125,19 @@ def resolve_operations(
         )
 
     resolved: list[OperationSpec] = []
-    for path, method, operation, path_item, operation_id in operations:
+    for candidate in candidates:
+        operation_id = candidate.operation_id
         if operation_id is not None and operation_id not in conflicting_ids:
             endpoint_name = operation_id
         else:
-            endpoint_name = path_to_endpoint_name(path)
+            endpoint_name = path_to_endpoint_name(candidate.path)
         resolved.append(
             OperationSpec(
-                path=path,
-                method=method,
+                path=candidate.path,
+                method=candidate.method,
                 endpoint_name=endpoint_name,
-                operation=operation,
-                path_item=path_item,
+                operation=candidate.operation,
+                path_item=candidate.path_item,
             )
         )
 

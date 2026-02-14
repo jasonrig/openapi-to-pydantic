@@ -7,8 +7,9 @@ from typing import Any
 
 from pydantic import BaseModel, RootModel
 
-from .model_types import FieldDef, ModelDef, SectionModel
+from .model_types import FieldDef, ModelDef, ModelSchemaConfig, SectionModel
 from .naming import class_name, sanitize_identifier
+from .schema_utils import is_object_schema, merge_all_of_schema
 
 
 _DOC_FIELDS = {
@@ -96,6 +97,13 @@ class _SectionContext:
     used_names: set[str] = field(default_factory=set)
 
 
+@dataclass(frozen=True)
+class _PropertySpec:
+    source_name: str
+    raw_schema: dict[str, Any]
+    required: bool
+
+
 class SchemaConverter:
     """Create pydantic model definitions from resolved schema nodes."""
 
@@ -134,11 +142,13 @@ class SchemaConverter:
                     is_root=True,
                     root_annotation=annotation,
                     fields=(),
-                    docstring=self._string_or_none(normalized_schema.get("description")),
-                    title=self._string_or_none(normalized_schema.get("title")),
-                    extra_behavior=None,
-                    schema_extra=self._schema_extra(normalized_schema),
-                    additional_properties_annotation=None,
+                    config=ModelSchemaConfig(
+                        docstring=self._string_or_none(normalized_schema.get("description")),
+                        title=self._string_or_none(normalized_schema.get("title")),
+                        extra_behavior=None,
+                        schema_extra=self._schema_extra(normalized_schema),
+                        additional_properties_annotation=None,
+                    ),
                 )
             )
             root_class = root_name
@@ -159,6 +169,44 @@ class SchemaConverter:
         """Build models for response and error sections with multiple status codes."""
         context = _SectionContext()
         ordered_statuses = sorted(schemas_by_status)
+
+        if len(ordered_statuses) == 1:
+            status = ordered_statuses[0]
+            schema = self._normalize_nullable(deep_copy(schemas_by_status[status]))
+            root_name = self._unique_name(class_name(root_class_name), context)
+            if self._is_object_schema(schema):
+                self._build_object_model(
+                    model_name=root_name,
+                    schema=schema,
+                    context=context,
+                )
+            else:
+                annotation = self._schema_to_annotation(
+                    schema=schema,
+                    hint=f"{root_name}Value",
+                    context=context,
+                )
+                context.models.append(
+                    ModelDef(
+                        name=root_name,
+                        is_root=True,
+                        root_annotation=annotation,
+                        fields=(),
+                        config=ModelSchemaConfig(
+                            docstring=self._string_or_none(schema.get("description")),
+                            title=self._string_or_none(schema.get("title")),
+                            extra_behavior=None,
+                            schema_extra=self._schema_extra(schema),
+                            additional_properties_annotation=None,
+                        ),
+                    )
+                )
+            return SectionModel(
+                section_name=section_name,
+                root_class_name=root_name,
+                models=tuple(context.models),
+            )
+
         option_annotations: list[str] = []
 
         for status in ordered_statuses:
@@ -186,11 +234,13 @@ class SchemaConverter:
                         is_root=True,
                         root_annotation=annotation,
                         fields=(),
-                        docstring=self._string_or_none(schema.get("description")),
-                        title=self._string_or_none(schema.get("title")),
-                        extra_behavior=None,
-                        schema_extra=self._schema_extra(schema),
-                        additional_properties_annotation=None,
+                        config=ModelSchemaConfig(
+                            docstring=self._string_or_none(schema.get("description")),
+                            title=self._string_or_none(schema.get("title")),
+                            extra_behavior=None,
+                            schema_extra=self._schema_extra(schema),
+                            additional_properties_annotation=None,
+                        ),
                     )
                 )
                 option_annotations.append(status_model_name)
@@ -203,11 +253,13 @@ class SchemaConverter:
                 is_root=True,
                 root_annotation=union_annotation,
                 fields=(),
-                docstring=None,
-                title=None,
-                extra_behavior=None,
-                schema_extra={},
-                additional_properties_annotation=None,
+                config=ModelSchemaConfig(
+                    docstring=None,
+                    title=None,
+                    extra_behavior=None,
+                    schema_extra={},
+                    additional_properties_annotation=None,
+                ),
             )
         )
 
@@ -225,72 +277,8 @@ class SchemaConverter:
         context: _SectionContext,
     ) -> str:
         merged = self._merge_all_of(schema)
-        properties = merged.get("properties")
-        required_names = (
-            set(merged.get("required", [])) if isinstance(merged.get("required"), list) else set()
-        )
-
-        if not isinstance(properties, dict):
-            properties = {}
-
-        fields: list[FieldDef] = []
-        used_field_names: set[str] = set()
-        for source_name, raw_prop in properties.items():
-            if not isinstance(source_name, str) or not isinstance(raw_prop, dict):
-                continue
-            prop_schema = self._normalize_nullable(deep_copy(raw_prop))
-            field_name = self._field_name(source_name, used_field_names)
-            used_field_names.add(field_name)
-
-            annotation = self._schema_to_annotation(
-                schema=prop_schema,
-                hint=f"{model_name}_{source_name}",
-                context=context,
-            )
-
-            required = source_name in required_names
-            default_value: Any | None
-            if "default" in prop_schema:
-                default_value = prop_schema["default"] if not required else None
-            else:
-                default_value = None
-
-            metadata = self._field_metadata(prop_schema)
-            if required and "default" in prop_schema:
-                schema_extra = metadata.get("json_schema_extra")
-                if not isinstance(schema_extra, dict):
-                    schema_extra = {}
-                schema_extra["default"] = prop_schema["default"]
-                metadata["json_schema_extra"] = schema_extra
-            fields.append(
-                FieldDef(
-                    name=field_name,
-                    source_name=source_name,
-                    annotation=annotation,
-                    required=required,
-                    default=default_value,
-                    metadata=metadata,
-                )
-            )
-
-        additional_properties = merged.get("additionalProperties")
-        extra_behavior: str | None
-        additional_properties_annotation: str | None = None
-        if isinstance(additional_properties, dict):
-            additional_properties_annotation = f"dict[str, {_PYDANTIC_EXTRA_VALUE_ANNOTATION}]"
-        elif additional_properties is True or additional_properties is None:
-            additional_properties_annotation = f"dict[str, {_PYDANTIC_EXTRA_VALUE_ANNOTATION}]"
-
-        if additional_properties is False:
-            extra_behavior = "forbid"
-        elif additional_properties is True or additional_properties is None:
-            extra_behavior = "allow"
-        else:
-            extra_behavior = "allow"
-
-        schema_extra = self._schema_extra(merged)
-        if isinstance(additional_properties, dict):
-            schema_extra["additionalProperties"] = deep_copy(additional_properties)
+        fields = self._build_model_fields(model_name=model_name, schema=merged, context=context)
+        config = self._object_model_config(merged)
 
         context.models.append(
             ModelDef(
@@ -298,14 +286,111 @@ class SchemaConverter:
                 is_root=False,
                 root_annotation=None,
                 fields=tuple(fields),
-                docstring=self._string_or_none(merged.get("description")),
-                title=self._string_or_none(merged.get("title")),
-                extra_behavior=extra_behavior,
-                schema_extra=schema_extra,
-                additional_properties_annotation=additional_properties_annotation,
+                config=config,
             )
         )
         return model_name
+
+    def _build_model_fields(
+        self,
+        *,
+        model_name: str,
+        schema: dict[str, Any],
+        context: _SectionContext,
+    ) -> list[FieldDef]:
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            return []
+
+        required_names = (
+            set(schema.get("required", [])) if isinstance(schema.get("required"), list) else set()
+        )
+        fields: list[FieldDef] = []
+        used_field_names: set[str] = set()
+        for source_name, raw_prop in properties.items():
+            if not isinstance(source_name, str) or not isinstance(raw_prop, dict):
+                continue
+            prop = _PropertySpec(
+                source_name=source_name,
+                raw_schema=raw_prop,
+                required=source_name in required_names,
+            )
+            model_field = self._build_model_field(
+                model_name=model_name,
+                prop=prop,
+                context=context,
+                used_field_names=used_field_names,
+            )
+            if model_field is not None:
+                fields.append(model_field)
+        return fields
+
+    def _build_model_field(
+        self,
+        *,
+        model_name: str,
+        prop: _PropertySpec,
+        context: _SectionContext,
+        used_field_names: set[str],
+    ) -> FieldDef | None:
+        prop_schema = self._normalize_nullable(deep_copy(prop.raw_schema))
+        field_name = self._field_name(prop.source_name, used_field_names)
+        used_field_names.add(field_name)
+        annotation = self._schema_to_annotation(
+            schema=prop_schema,
+            hint=f"{model_name}_{prop.source_name}",
+            context=context,
+        )
+
+        metadata = self._field_metadata(prop_schema)
+        if prop.required and "default" in prop_schema:
+            schema_extra = metadata.get("json_schema_extra")
+            if not isinstance(schema_extra, dict):
+                schema_extra = {}
+            schema_extra["default"] = prop_schema["default"]
+            metadata["json_schema_extra"] = schema_extra
+
+        return FieldDef(
+            name=field_name,
+            source_name=prop.source_name,
+            annotation=annotation,
+            required=prop.required,
+            default=self._field_default(prop_schema, required=prop.required),
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _field_default(schema: dict[str, Any], *, required: bool) -> Any | None:
+        if "default" not in schema:
+            return None
+        if required:
+            return None
+        return schema["default"]
+
+    def _object_model_config(self, schema: dict[str, Any]) -> ModelSchemaConfig:
+        additional_properties = schema.get("additionalProperties")
+        additional_properties_annotation: str | None = None
+        if isinstance(additional_properties, dict):
+            additional_properties_annotation = f"dict[str, {_PYDANTIC_EXTRA_VALUE_ANNOTATION}]"
+
+        if additional_properties is False:
+            extra_behavior = "forbid"
+        else:
+            extra_behavior = "allow"
+
+        schema_extra = self._schema_extra(schema)
+        if isinstance(additional_properties, dict):
+            schema_extra["additionalProperties"] = sanitize_json_schema_extra(
+                deep_copy(additional_properties)
+            )
+
+        return ModelSchemaConfig(
+            docstring=self._string_or_none(schema.get("description")),
+            title=self._string_or_none(schema.get("title")),
+            extra_behavior=extra_behavior,
+            schema_extra=schema_extra,
+            additional_properties_annotation=additional_properties_annotation,
+        )
 
     def _field_name(self, source_name: str, used_names: set[str]) -> str:
         candidate = sanitize_identifier(source_name)
@@ -346,6 +431,12 @@ class SchemaConverter:
             structural_keys=_FIELD_STRUCTURAL_KEYS,
         )
         extra.update(passthrough)
+        if isinstance(schema.get("items"), dict):
+            extra["items"] = sanitize_json_schema_extra(deep_copy(schema["items"]))
+        if isinstance(schema.get("additionalProperties"), dict):
+            extra["additionalProperties"] = sanitize_json_schema_extra(
+                deep_copy(schema["additionalProperties"])
+            )
 
         if extra:
             metadata["json_schema_extra"] = extra
@@ -365,7 +456,7 @@ class SchemaConverter:
             "deprecated",
         ):
             if key in schema:
-                extra[key] = deep_copy(schema[key])
+                extra[key] = sanitize_json_schema_extra(deep_copy(schema[key]))
 
         passthrough = self._passthrough_schema_extra(
             schema=schema,
@@ -386,7 +477,7 @@ class SchemaConverter:
                 continue
             if key in structural_keys:
                 continue
-            passthrough[key] = deep_copy(value)
+            passthrough[key] = sanitize_json_schema_extra(deep_copy(value))
         return passthrough
 
     def _schema_to_annotation(
@@ -396,51 +487,103 @@ class SchemaConverter:
         hint: str,
         context: _SectionContext,
     ) -> str:
+        annotation = self._annotation_from_type_list(schema=schema, hint=hint, context=context)
+        if annotation is None:
+            annotation = self._annotation_from_literal(schema=schema)
+        if annotation is None:
+            annotation = self._annotation_from_combinators(
+                schema=schema,
+                hint=hint,
+                context=context,
+            )
+        if annotation is not None:
+            return annotation
+
+        schema_type = schema.get("type")
+        if schema_type == "array":
+            annotation = self._annotation_for_array(schema=schema, hint=hint, context=context)
+        elif schema_type == "object" or self._is_object_schema(schema):
+            annotation = self._annotation_for_object(schema=schema, hint=hint, context=context)
+        else:
+            primitive_map = {
+                "string": "str",
+                "integer": "int",
+                "number": "float",
+                "boolean": "bool",
+                "null": "None",
+            }
+            annotation = (
+                primitive_map[schema_type]
+                if isinstance(schema_type, str) and schema_type in primitive_map
+                else _JSON_VALUE_ANNOTATION
+            )
+        return annotation
+
+    def _annotation_from_type_list(
+        self,
+        *,
+        schema: dict[str, Any],
+        hint: str,
+        context: _SectionContext,
+    ) -> str | None:
+        schema_type = schema.get("type")
+        if not isinstance(schema_type, list):
+            return None
+        members: list[str] = []
+        for member in schema_type:
+            if not isinstance(member, str):
+                continue
+            if member == "null":
+                members.append("None")
+                continue
+            member_schema = deep_copy(schema)
+            member_schema["type"] = member
+            members.append(
+                self._schema_to_annotation(
+                    schema=member_schema,
+                    hint=hint,
+                    context=context,
+                )
+            )
+        return self._make_union(members)
+
+    @staticmethod
+    def _annotation_from_literal(*, schema: dict[str, Any]) -> str | None:
         if "const" in schema:
             return f"Literal[{safe_literal(schema['const'])}]"
-
         enum = schema.get("enum")
         if isinstance(enum, list) and enum:
             literals = ", ".join(safe_literal(value) for value in enum)
             return f"Literal[{literals}]"
+        return None
 
+    def _annotation_from_combinators(
+        self,
+        *,
+        schema: dict[str, Any],
+        hint: str,
+        context: _SectionContext,
+    ) -> str | None:
         one_of = schema.get("oneOf")
         if isinstance(one_of, list) and one_of:
-            options = [
-                self._schema_to_annotation(
-                    schema=self._normalize_nullable(deep_copy(item))
-                    if isinstance(item, dict)
-                    else {},
-                    hint=f"{hint}Option{index + 1}",
-                    context=context,
-                )
-                for index, item in enumerate(one_of)
-            ]
-            union_annotation = self._make_union(options)
-            discriminator = schema.get("discriminator")
-            if isinstance(discriminator, dict):
-                property_name = discriminator.get("propertyName")
-                if (
-                    isinstance(property_name, str)
-                    and property_name
-                    and self._is_discriminator_compatible(one_of, property_name)
-                ):
-                    return f"Annotated[{union_annotation}, Field(discriminator={safe_literal(property_name)})]"
-            return union_annotation
+            union_annotation = self._union_from_schema_list(
+                schemas=one_of,
+                hint_prefix=f"{hint}Option",
+                context=context,
+            )
+            return self._apply_discriminator(
+                schema=schema,
+                one_of=one_of,
+                union_annotation=union_annotation,
+            )
 
         any_of = schema.get("anyOf")
         if isinstance(any_of, list) and any_of:
-            options = [
-                self._schema_to_annotation(
-                    schema=self._normalize_nullable(deep_copy(item))
-                    if isinstance(item, dict)
-                    else {},
-                    hint=f"{hint}Any{index + 1}",
-                    context=context,
-                )
-                for index, item in enumerate(any_of)
-            ]
-            return self._make_union(options)
+            return self._union_from_schema_list(
+                schemas=any_of,
+                hint_prefix=f"{hint}Any",
+                context=context,
+            )
 
         all_of = schema.get("allOf")
         if isinstance(all_of, list) and all_of:
@@ -453,85 +596,121 @@ class SchemaConverter:
                     context=context,
                 )
                 return nested_name
-
-            options = [
-                self._schema_to_annotation(
-                    schema=self._normalize_nullable(deep_copy(item))
-                    if isinstance(item, dict)
-                    else {},
-                    hint=f"{hint}All{index + 1}",
-                    context=context,
-                )
-                for index, item in enumerate(all_of)
-            ]
-            return self._make_union(options)
-
-        schema_type = schema.get("type")
-        if isinstance(schema_type, list):
-            members = [
-                self._schema_to_annotation(schema={"type": member}, hint=hint, context=context)
-                for member in schema_type
-            ]
-            return self._make_union(members)
-
-        if schema_type == "array":
-            items = schema.get("items")
-            item_schema = items if isinstance(items, dict) else {}
-            item_annotation = self._schema_to_annotation(
-                schema=self._normalize_nullable(deep_copy(item_schema)),
-                hint=f"{hint}Item",
+            return self._union_from_schema_list(
+                schemas=all_of,
+                hint_prefix=f"{hint}All",
                 context=context,
             )
-            item_extra = self._schema_extra(item_schema)
-            if item_extra:
-                item_annotation = (
-                    "Annotated["
-                    f"{item_annotation}, "
-                    f"Field(json_schema_extra={safe_literal(item_extra)})"
-                    "]"
-                )
-            return f"list[{item_annotation}]"
+        return None
 
-        if schema_type == "object" or self._is_object_schema(schema):
+    def _union_from_schema_list(
+        self,
+        *,
+        schemas: list[Any],
+        hint_prefix: str,
+        context: _SectionContext,
+    ) -> str:
+        options: list[str] = []
+        for index, item in enumerate(schemas):
+            item_schema = (
+                self._normalize_nullable(deep_copy(item)) if isinstance(item, dict) else {}
+            )
+            options.append(
+                self._schema_to_annotation(
+                    schema=item_schema,
+                    hint=f"{hint_prefix}{index + 1}",
+                    context=context,
+                )
+            )
+        return self._make_union(options)
+
+    def _apply_discriminator(
+        self,
+        *,
+        schema: dict[str, Any],
+        one_of: list[Any],
+        union_annotation: str,
+    ) -> str:
+        discriminator = schema.get("discriminator")
+        if not isinstance(discriminator, dict):
+            return union_annotation
+
+        property_name = discriminator.get("propertyName")
+        if (
+            isinstance(property_name, str)
+            and property_name
+            and self._is_discriminator_compatible(one_of, property_name)
+        ):
+            return (
+                f"Annotated[{union_annotation}, Field(discriminator={safe_literal(property_name)})]"
+            )
+        return union_annotation
+
+    def _annotation_for_array(
+        self,
+        *,
+        schema: dict[str, Any],
+        hint: str,
+        context: _SectionContext,
+    ) -> str:
+        items = schema.get("items")
+        if isinstance(items, dict):
+            item_schema = items
+        else:
+            item_schema = {}
             properties = schema.get("properties")
             if isinstance(properties, dict):
-                nested_name = self._unique_name(class_name(hint), context)
-                self._build_object_model(
-                    model_name=nested_name,
-                    schema=schema,
-                    context=context,
-                )
-                return nested_name
+                item_schema = {"type": "object", "properties": deep_copy(properties)}
+                required = schema.get("required")
+                if isinstance(required, list):
+                    item_schema["required"] = [item for item in required if isinstance(item, str)]
 
-            additional = schema.get("additionalProperties")
-            if isinstance(additional, dict):
-                value_annotation = self._schema_to_annotation(
-                    schema=self._normalize_nullable(deep_copy(additional)),
-                    hint=f"{hint}Additional",
-                    context=context,
-                )
-                return f"dict[str, {value_annotation}]"
-            if additional is False:
-                nested_name = self._unique_name(class_name(hint), context)
-                self._build_object_model(
-                    model_name=nested_name,
-                    schema={"type": "object", "properties": {}, "additionalProperties": False},
-                    context=context,
-                )
-                return nested_name
-            return f"dict[str, {_JSON_VALUE_ANNOTATION}]"
+        item_annotation = self._schema_to_annotation(
+            schema=self._normalize_nullable(deep_copy(item_schema)),
+            hint=f"{hint}Item",
+            context=context,
+        )
+        item_extra = self._schema_extra(item_schema)
+        if item_extra:
+            item_annotation = (
+                f"Annotated[{item_annotation}, Field(json_schema_extra={safe_literal(item_extra)})]"
+            )
+        return f"list[{item_annotation}]"
 
-        primitive_map = {
-            "string": "str",
-            "integer": "int",
-            "number": "float",
-            "boolean": "bool",
-            "null": "None",
-        }
-        if isinstance(schema_type, str) and schema_type in primitive_map:
-            return primitive_map[schema_type]
+    def _annotation_for_object(
+        self,
+        *,
+        schema: dict[str, Any],
+        hint: str,
+        context: _SectionContext,
+    ) -> str:
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            nested_name = self._unique_name(class_name(hint), context)
+            self._build_object_model(
+                model_name=nested_name,
+                schema=schema,
+                context=context,
+            )
+            return nested_name
 
-        return _JSON_VALUE_ANNOTATION
+        additional = schema.get("additionalProperties")
+        if isinstance(additional, dict):
+            value_annotation = self._schema_to_annotation(
+                schema=self._normalize_nullable(deep_copy(additional)),
+                hint=f"{hint}Additional",
+                context=context,
+            )
+            return f"dict[str, {value_annotation}]"
+        if additional is False:
+            nested_name = self._unique_name(class_name(hint), context)
+            self._build_object_model(
+                model_name=nested_name,
+                schema={"type": "object", "properties": {}, "additionalProperties": False},
+                context=context,
+            )
+            return nested_name
+        return "dict[str, Any]"
 
     def _make_union(self, annotations: list[str]) -> str:
         deduped: list[str] = []
@@ -551,65 +730,13 @@ class SchemaConverter:
         return f"Union[{', '.join(deduped)}]"
 
     def _merge_all_of(self, schema: dict[str, Any]) -> dict[str, Any]:
-        all_of = schema.get("allOf")
-        if not isinstance(all_of, list) or not all_of:
-            return schema
-
-        merged = {key: value for key, value in schema.items() if key != "allOf"}
-        merged_properties: dict[str, Any] = {}
-        merged_required: set[str] = set()
-        additional_properties: Any = merged.get("additionalProperties")
-
-        can_merge_objects = True
-        for item in all_of:
-            if not isinstance(item, dict):
-                can_merge_objects = False
-                break
-            normalized = self._normalize_nullable(deep_copy(item))
-            child = self._merge_all_of(normalized)
-            if not self._is_object_schema(child):
-                can_merge_objects = False
-                break
-            child_properties = child.get("properties")
-            if isinstance(child_properties, dict):
-                merged_properties.update(deep_copy(child_properties))
-            child_required = child.get("required")
-            if isinstance(child_required, list):
-                for required_name in child_required:
-                    if isinstance(required_name, str):
-                        merged_required.add(required_name)
-            if child.get("additionalProperties") is False:
-                additional_properties = False
-
-        if not can_merge_objects:
-            return schema
-
-        merged["type"] = "object"
-        merged["properties"] = merged_properties
-        if merged_required:
-            merged["required"] = sorted(merged_required)
-        if additional_properties is not None:
-            merged["additionalProperties"] = additional_properties
-        return merged
+        return merge_all_of_schema(
+            schema,
+            normalize_item=self._normalize_nullable,
+        )
 
     def _is_object_schema(self, schema: dict[str, Any]) -> bool:
-        schema_type = schema.get("type")
-        if schema_type == "object":
-            return True
-        if isinstance(schema.get("properties"), dict):
-            return True
-        all_of = schema.get("allOf")
-        if isinstance(all_of, list) and all_of:
-            return all(
-                isinstance(item, dict)
-                and (
-                    item.get("type") == "object"
-                    or isinstance(item.get("properties"), dict)
-                    or isinstance(item.get("allOf"), list)
-                )
-                for item in all_of
-            )
-        return False
+        return is_object_schema(schema)
 
     def _is_discriminator_compatible(
         self,
@@ -677,4 +804,18 @@ def deep_copy(value: Any) -> Any:
         return {key: deep_copy(item) for key, item in value.items()}
     if isinstance(value, list):
         return [deep_copy(item) for item in value]
+    return value
+
+
+def sanitize_json_schema_extra(value: Any) -> Any:
+    """Drop external refs in json_schema_extra payloads to keep pydantic schema generation valid."""
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "$ref":
+                continue
+            sanitized[key] = sanitize_json_schema_extra(item)
+        return sanitized
+    if isinstance(value, list):
+        return [sanitize_json_schema_extra(item) for item in value]
     return value

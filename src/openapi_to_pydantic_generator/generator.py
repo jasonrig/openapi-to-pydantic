@@ -12,7 +12,7 @@ from .loader import (
     get_openapi_version,
     load_openapi_document,
 )
-from .model_types import GenerationResult, VerificationItem
+from .model_types import GenerationResult, OperationSpec, VerificationItem
 from .naming import resolve_operations
 from .resolver import Resolver, SectionSchemas
 from .schema_to_models import SchemaConverter
@@ -54,23 +54,12 @@ def run_generation(
     resolver = Resolver(document)
     converter = SchemaConverter(version)
 
-    verification_items: list[VerificationItem] = []
-
-    for operation in operations:
-        section_schemas = resolver.build_section_schemas(operation)
-        sections, items = _build_operation_sections(
-            operation=operation,
-            section_schemas=section_schemas,
-            converter=converter,
-        )
-        if sections:
-            write_operation_sections(
-                models_dir=models_dir,
-                endpoint_name=operation.endpoint_name,
-                method=operation.method,
-                sections=sections,
-            )
-            verification_items.extend(items)
+    verification_items = _generate_operations(
+        operations=operations,
+        resolver=resolver,
+        converter=converter,
+        models_dir=models_dir,
+    )
 
     format_generated_tree(models_dir=models_dir)
 
@@ -86,14 +75,40 @@ def run_generation(
     report = verify_models(
         items=verification_items,
         output_dir=output_dir,
-        openapi_version=version,
     )
     return GenerationRun(result=result, verification_report=report)
 
 
+def _generate_operations(
+    *,
+    operations: list[OperationSpec],
+    resolver: Resolver,
+    converter: SchemaConverter,
+    models_dir: Path,
+) -> list[VerificationItem]:
+    verification_items: list[VerificationItem] = []
+    for operation in operations:
+        section_schemas = resolver.build_section_schemas(operation)
+        sections, items = _build_operation_sections(
+            operation=operation,
+            section_schemas=section_schemas,
+            converter=converter,
+        )
+        if not sections:
+            continue
+        write_operation_sections(
+            models_dir=models_dir,
+            endpoint_name=operation.endpoint_name,
+            method=operation.method,
+            sections=sections,
+        )
+        verification_items.extend(items)
+    return verification_items
+
+
 def _build_operation_sections(
     *,
-    operation: Any,
+    operation: OperationSpec,
     section_schemas: SectionSchemas,
     converter: SchemaConverter,
 ) -> tuple[list[Any], list[VerificationItem]]:

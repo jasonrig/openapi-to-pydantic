@@ -38,7 +38,19 @@ def test_generation_with_verification(fixture_path: Path, tmp_path: Path) -> Non
     report = run.verification_report
     assert report is not None
     assert report.verified_count > 0
-    assert report.mismatch_count <= report.verified_count
+    if report.mismatch_count > 0:
+        preview = "\n".join(
+            (
+                f"{m.path} :: "
+                f"{m.endpoint_name}.{m.method}.{m.section_name}.{m.class_name} | "
+                f"expected={m.expected!r} actual={m.actual!r}"
+            )
+            for m in report.mismatches[:8]
+        )
+        pytest.fail(
+            f"Verification mismatches for {fixture_path.name}: "
+            f"{report.mismatch_count}/{report.verified_count}\n{preview}"
+        )
 
 
 def test_output_directory_must_not_exist(tmp_path: Path) -> None:

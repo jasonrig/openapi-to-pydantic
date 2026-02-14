@@ -19,6 +19,17 @@ class FieldDef:
 
 
 @dataclass(frozen=True)
+class ModelSchemaConfig:
+    """Schema and config metadata for a generated model class."""
+
+    docstring: str | None
+    title: str | None
+    extra_behavior: str | None
+    schema_extra: dict[str, Any]
+    additional_properties_annotation: str | None
+
+
+@dataclass(frozen=True)
 class ModelDef:
     """Represents a generated pydantic model class."""
 
@@ -26,11 +37,7 @@ class ModelDef:
     is_root: bool
     root_annotation: str | None
     fields: tuple[FieldDef, ...]
-    docstring: str | None
-    title: str | None
-    extra_behavior: str | None
-    schema_extra: dict[str, Any]
-    additional_properties_annotation: str | None
+    config: ModelSchemaConfig
 
 
 @dataclass(frozen=True)

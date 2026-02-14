@@ -53,6 +53,26 @@
 - Commit changes progressively to allow for easy rollback.
 - Do not mix refactors with behavior changes unless necessary.
 - Avoid rewriting history unless explicitly requested.
+- Commit frequently in small logical chunks while implementing.
+- Once a stable checkpoint exists, commit before starting the next logical unit of work.
+- Avoid carrying large uncommitted deltas across multiple unrelated tasks.
+
+## Delivery Workflow
+- Use the test harness as the primary driver for implementation.
+- Prefer adding or tightening tests first, then implement only what is needed to satisfy failing tests.
+- Keep failure diagnostics in tests actionable (include expected/actual context for schema mismatches).
+- Prefer harness-driven debugging over one-off custom scripts; use ad-hoc scripts only when the harness cannot provide the needed signal.
+
+## Execution Enforcement
+- Commit checkpoint rule: commit before starting the next logical unit of work once the current unit reaches a stable checkpoint.
+- Progress status rule: every substantial progress update must include current goal, current gate result, and latest commit hash.
+- Dirty tree limit rule: if more than 5 files are modified, stop and either commit a stable chunk or explicitly report the blocker and recovery plan.
+- Completion rule: do not claim completion unless all gates pass in the working tree:
+  - `uv run ruff check .`
+  - `uv run mypy src tests`
+  - `uv run pylint src tests`
+  - `uv run pytest -q`
+- Audit response rule: on request, immediately provide `git status --short` and `git log --oneline -n 5`.
 
 ## Generated Artifacts
 - Do not manually edit generated files.
@@ -68,4 +88,3 @@
 - Validate inputs when appropriate.
 - Avoid unsafe operations in build or test scripts.
 - Do not introduce destructive operations unless explicitly required.
-

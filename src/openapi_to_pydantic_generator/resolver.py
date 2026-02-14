@@ -87,39 +87,54 @@ class Resolver:
         """Build all section schemas for a single operation."""
         path_params = self._collect_parameters(operation_spec.path_item)
         operation_params = self._collect_parameters(operation_spec.operation)
-
         merged_params = [*path_params, *operation_params]
-
-        url_schema = self._parameters_to_schema(merged_params, location="path")
-        query_schema = self._parameters_to_schema(merged_params, location="query")
-        header_schema = self._parameters_to_schema(merged_params, location="header")
-        cookie_schema = self._parameters_to_schema(merged_params, location="cookie")
+        parameter_schemas = self._build_parameter_schemas(merged_params)
 
         request_body = operation_spec.operation.get("requestBody")
         body_schema = self._request_body_to_schema(request_body)
 
         responses_raw = operation_spec.operation.get("responses")
-        success: dict[str, dict[str, Any]] = {}
-        errors: dict[str, dict[str, Any]] = {}
-        if isinstance(responses_raw, dict):
-            for status_code, response_node in responses_raw.items():
-                if not isinstance(status_code, str):
-                    continue
-                schema = self._response_to_schema(response_node)
-                if schema is None:
-                    continue
-                target = success if status_code.startswith(_HTTP_SUCCESS_PREFIX) else errors
-                target[status_code] = schema
+        success, errors = self._split_response_schemas(responses_raw)
 
         return SectionSchemas(
-            url_params=url_schema,
-            query_params=query_schema,
-            headers=header_schema,
-            cookies=cookie_schema,
+            url_params=parameter_schemas["path"],
+            query_params=parameter_schemas["query"],
+            headers=parameter_schemas["header"],
+            cookies=parameter_schemas["cookie"],
             body=body_schema,
             response_schemas=success,
             error_schemas=errors,
         )
+
+    def _build_parameter_schemas(
+        self,
+        parameters: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any] | None]:
+        return {
+            "path": self._parameters_to_schema(parameters, location="path"),
+            "query": self._parameters_to_schema(parameters, location="query"),
+            "header": self._parameters_to_schema(parameters, location="header"),
+            "cookie": self._parameters_to_schema(parameters, location="cookie"),
+        }
+
+    def _split_response_schemas(
+        self,
+        responses_raw: Any,
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+        success: dict[str, dict[str, Any]] = {}
+        errors: dict[str, dict[str, Any]] = {}
+        if not isinstance(responses_raw, dict):
+            return success, errors
+
+        for status_code, response_node in responses_raw.items():
+            if not isinstance(status_code, str):
+                continue
+            schema = self._response_to_schema(response_node)
+            if schema is None:
+                continue
+            target = success if status_code.startswith(_HTTP_SUCCESS_PREFIX) else errors
+            target[status_code] = schema
+        return success, errors
 
     def _collect_parameters(self, node: dict[str, Any]) -> list[dict[str, Any]]:
         raw = node.get("parameters")

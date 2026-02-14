@@ -47,23 +47,18 @@ def verify_models(
     *,
     items: list[VerificationItem],
     output_dir: Path,
-    openapi_version: str,
 ) -> VerificationReport:
     """Verify generated model JSON schemas against normalized source schemas."""
     mismatches: list[VerificationMismatch] = []
 
     for item in items:
-        source_normalized = normalize_source_schema(
-            item.source_schema, openapi_version=openapi_version
-        )
+        source_normalized = normalize_source_schema(item.source_schema)
         generated_class = _load_model_class(
             module_path=output_dir / item.generated_module_path,
             class_name=item.class_name,
         )
         generated_schema = generated_class.model_json_schema()
-        generated_normalized = normalize_generated_schema(
-            generated_schema, openapi_version=openapi_version
-        )
+        generated_normalized = normalize_generated_schema(generated_schema)
 
         # Validate generated schema shape. Source schemas can carry OpenAPI-specific forms.
         try:

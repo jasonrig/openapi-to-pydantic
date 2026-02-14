@@ -47,6 +47,8 @@ Track design decisions made during initial discussions.
 - Generalization: avoid special-case branches for specific fixtures; fixes must generalize.
 - Quality gates: ruff, mypy, and pylint must be clean; pre-commit hooks are mandatory and not bypassed.
 - Version control: commit frequently and keep commits focused.
+- Fixture validity: tests fail on invalid OpenAPI fixtures; either the fixture is corrected or the parser is fixed.
+- Fixture validation: run an independent OpenAPI parser in tests (prefer `openapi-python-client`) to validate fixtures before generator assertions.
 
 ## Test Strategy (Initial)
 - Unit tests for schema-to-IR conversion and normalization utilities.

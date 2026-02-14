@@ -39,7 +39,8 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-extend-select = ["D100", "D101", "D102", "D103"]
+extend-select = ["D", "F", "E", "W"]
+ignore = ["D203", "D213"]
 
 [tool.mypy]
 python_version = "3.12"

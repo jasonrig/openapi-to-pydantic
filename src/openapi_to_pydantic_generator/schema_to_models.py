@@ -121,6 +121,7 @@ class SchemaConverter:
     """Create pydantic model definitions from resolved schema nodes."""
 
     def __init__(self, openapi_version: str) -> None:
+        """Store OpenAPI version for version-specific schema handling."""
         self._openapi_version = openapi_version
 
     def build_section_from_schema(

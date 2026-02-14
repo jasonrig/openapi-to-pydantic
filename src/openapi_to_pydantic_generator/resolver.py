@@ -35,6 +35,7 @@ class Resolver:
     """Resolve local references and build endpoint section schemas."""
 
     def __init__(self, document: JSONObject) -> None:
+        """Initialize resolver state for one OpenAPI document."""
         self._document = deepcopy(document)
         self._cache: dict[str, JSONValue] = {}
         self._cycle_cache: set[str] = set()

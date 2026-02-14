@@ -146,7 +146,7 @@ def _to_mismatch(*, item: VerificationItem, mismatch: Mismatch) -> VerificationM
 
 
 def short_repr(value: JSONValue, *, limit: int = 160) -> str:
-    """A short representation for mismatch diagnostics."""
+    """Return a short representation for mismatch diagnostics."""
     text = repr(value)
     return text if len(text) <= limit else f"{text[: limit - 3]}..."
 

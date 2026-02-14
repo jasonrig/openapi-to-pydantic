@@ -2,16 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Callable
-
-
-def deep_copy_json(value: Any) -> Any:
-    """Copy JSON-like values."""
-    if isinstance(value, dict):
-        return {key: deep_copy_json(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [deep_copy_json(item) for item in value]
-    return value
 
 
 def is_object_schema(schema: dict[str, Any]) -> bool:
@@ -75,7 +67,7 @@ def _collect_mergeable_all_of_children(
     for item in all_of:
         if not isinstance(item, dict):
             return None
-        child_schema = deep_copy_json(item)
+        child_schema = deepcopy(item)
         if normalize_item is not None:
             child_schema = normalize_item(child_schema)
         merged_child = merge_all_of_schema(child_schema, normalize_item=normalize_item)
@@ -93,7 +85,7 @@ def _merge_child_object_data(
 ) -> None:
     child_properties = child_schema.get("properties")
     if isinstance(child_properties, dict):
-        merged_properties.update(deep_copy_json(child_properties))
+        merged_properties.update(deepcopy(child_properties))
 
     child_required = child_schema.get("required")
     if isinstance(child_required, list):

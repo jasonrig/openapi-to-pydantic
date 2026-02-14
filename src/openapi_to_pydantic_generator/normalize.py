@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from .schema_utils import merge_all_of_schema
 
@@ -24,7 +25,7 @@ class Mismatch:
 
 def normalize_source_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Normalize source schema from OpenAPI for comparison."""
-    normalized = _deep_copy(schema)
+    normalized = deepcopy(schema)
     normalized = _normalize_nullable(normalized)
     normalized = _normalize_all_of(normalized)
     return _as_dict(_normalize_structural(normalized))
@@ -32,7 +33,7 @@ def normalize_source_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_generated_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Normalize pydantic-generated schema for comparison."""
-    normalized = _deep_copy(schema)
+    normalized = deepcopy(schema)
     normalized = _inline_local_refs(normalized)
     if isinstance(normalized, dict):
         normalized.pop("$defs", None)
@@ -112,7 +113,7 @@ def _normalize_nullable(node: Any) -> Any:
     return normalized
 
 
-def _normalize_structural(node: Any, *, parent_key: str | None = None) -> Any:
+def _normalize_structural(node: Any, *, parent_key: Optional[str] = None) -> Any:
     if isinstance(node, list):
         normalized_list = [_normalize_structural(item) for item in node]
         if parent_key in _ORDER_INSENSITIVE_KEYS:
@@ -406,26 +407,18 @@ def _resolve_ref_node(node: Any, *, defs: dict[str, Any], stack: tuple[str, ...]
         target = defs.get(key)
         if target is None:
             raise ValueError(f"Missing local schema definition for {ref}")
-        resolved = _resolve_ref_node(_deep_copy(target), defs=defs, stack=(*stack, ref))
+        resolved = _resolve_ref_node(deepcopy(target), defs=defs, stack=(*stack, ref))
         siblings = {k: v for k, v in node.items() if k != "$ref"}
         if not siblings:
             return resolved
         if not isinstance(resolved, dict):
             return resolved
-        merged = _deep_copy(resolved)
+        merged = deepcopy(resolved)
         for key_name, key_value in siblings.items():
             merged[key_name] = _resolve_ref_node(key_value, defs=defs, stack=stack)
         return merged
 
     return {key: _resolve_ref_node(value, defs=defs, stack=stack) for key, value in node.items()}
-
-
-def _deep_copy(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: _deep_copy(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_deep_copy(item) for item in value]
-    return value
 
 
 def _canonical_json(value: Any) -> str:

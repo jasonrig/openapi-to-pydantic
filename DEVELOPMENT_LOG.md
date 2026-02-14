@@ -22,3 +22,6 @@
 - Quality policy updated: removed broad pylint ignores and refactored complexity hotspots until `pylint` is clean without those suppressions.
 - Refactor decision: extracted shared schema helpers into `schema_utils.py` (`deep_copy_json`, `is_object_schema`, `merge_all_of_schema`) to support reuse and reduce duplicate logic across normalization and conversion.
 - Alternative considered: keep duplicate local helpers in each module; rejected because it increased lint complexity and maintenance cost.
+- CLI policy update: migrated CLI from `argparse` to `click` after explicit requirement update.
+- Error-handling policy update: removed CLI-side exception catching for generation/load paths; failures now propagate as runtime exceptions. Verification mismatches raise `VerificationMismatchError` with an informative message.
+- Review marker disposition: all review markers were either implemented directly or superseded by explicit follow-up requirements.

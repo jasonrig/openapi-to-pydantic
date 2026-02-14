@@ -5,6 +5,7 @@ description = "OpenAPI to endpoint-scoped Pydantic model generator"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "click>=8.3.1",
     "jsonschema>=4.26.0",
     "pydantic>=2.12.5",
     "pyyaml>=6.0.3",

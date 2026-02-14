@@ -6,6 +6,7 @@ import keyword
 import re
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
 from .model_types import OperationSpec
 
@@ -67,13 +68,13 @@ def _operation_id_candidate(operation_id: str) -> str:
 class _OperationCandidate:
     path: str
     method: str
-    operation: dict[str, object]
-    path_item: dict[str, object]
+    operation: dict[str, Any]
+    path_item: dict[str, Any]
     operation_id: str | None
 
 
 def _collect_operation_candidates(
-    raw_paths: dict[str, dict[str, object]],
+    raw_paths: dict[str, dict[str, Any]],
 ) -> list[_OperationCandidate]:
     candidates: list[_OperationCandidate] = []
     for path, path_item_untyped in raw_paths.items():
@@ -110,7 +111,7 @@ def _conflicting_operation_ids(candidates: list[_OperationCandidate]) -> set[str
 
 
 def resolve_operations(
-    raw_paths: dict[str, dict[str, object]],
+    raw_paths: dict[str, dict[str, Any]],
 ) -> tuple[list[OperationSpec], list[str]]:
     """Extract operations and determine endpoint names with hybrid operationId fallback."""
     candidates = _collect_operation_candidates(raw_paths)

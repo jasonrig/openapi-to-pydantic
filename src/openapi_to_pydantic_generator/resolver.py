@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from .model_types import OperationSpec
 
@@ -20,11 +20,11 @@ _HTTP_SUCCESS_PREFIX = "2"
 class SectionSchemas:
     """Resolved section schemas for one endpoint operation."""
 
-    url_params: dict[str, Any] | None
-    query_params: dict[str, Any] | None
-    headers: dict[str, Any] | None
-    cookies: dict[str, Any] | None
-    body: dict[str, Any] | None
+    url_params: Optional[dict[str, Any]]
+    query_params: Optional[dict[str, Any]]
+    headers: Optional[dict[str, Any]]
+    cookies: Optional[dict[str, Any]]
+    body: Optional[dict[str, Any]]
     response_schemas: dict[str, dict[str, Any]]
     error_schemas: dict[str, dict[str, Any]]
 
@@ -109,7 +109,7 @@ class Resolver:
     def _build_parameter_schemas(
         self,
         parameters: list[dict[str, Any]],
-    ) -> dict[str, dict[str, Any] | None]:
+    ) -> dict[str, Optional[dict[str, Any]]]:
         return {
             "path": self._parameters_to_schema(parameters, location="path"),
             "query": self._parameters_to_schema(parameters, location="query"),
@@ -154,7 +154,7 @@ class Resolver:
         parameters: list[dict[str, Any]],
         *,
         location: str,
-    ) -> dict[str, Any] | None:
+    ) -> Optional[dict[str, Any]]:
         properties: dict[str, Any] = {}
         required: list[str] = []
 
@@ -199,7 +199,7 @@ class Resolver:
         }
         return schema_obj
 
-    def _request_body_to_schema(self, request_body: Any) -> dict[str, Any] | None:
+    def _request_body_to_schema(self, request_body: Any) -> Optional[dict[str, Any]]:
         if not isinstance(request_body, dict):
             return None
         resolved_body = self.resolve_node(request_body)
@@ -233,7 +233,7 @@ class Resolver:
                     return resolved_schema
         return None
 
-    def _response_to_schema(self, response_node: Any) -> dict[str, Any] | None:
+    def _response_to_schema(self, response_node: Any) -> Optional[dict[str, Any]]:
         if not isinstance(response_node, dict):
             return None
         resolved_response = self.resolve_node(response_node)

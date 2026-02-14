@@ -2,61 +2,59 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
-from .generator import OpenAPILoadError, WriteError, run_generation
+import click
+
+from .generator import run_generation
 from .verify import format_report
 
 
-class CLIError(RuntimeError):
-    """Raised when CLI execution fails."""
+class VerificationMismatchError(RuntimeError):
+    """Raised when verification finds schema mismatches."""
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the CLI parser."""
-    parser = argparse.ArgumentParser(
-        prog="openapi-to-pydantic-generator",
-        description="Generate endpoint-scoped pydantic models from OpenAPI YAML",
+def _run_cli(input_path: Path, output_path: Path, verify: bool) -> None:
+    """Run CLI."""
+    run = run_generation(
+        input_path=input_path,
+        output_dir=output_path,
+        verify=verify,
     )
-    parser.add_argument("--input", required=True, help="Path to an OpenAPI YAML file")
-    parser.add_argument("--output", required=True, help="Output directory for generated packages")
-    parser.add_argument(
-        "--verify",
-        action="store_true",
-        help="Run schema equivalence verification against generated models",
-    )
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    """Run CLI and return process exit code."""
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    input_path = Path(args.input)
-    output_path = Path(args.output)
-
-    try:
-        run = run_generation(
-            input_path=input_path,
-            output_dir=output_path,
-            verify=bool(args.verify),
-        )
-    except (OpenAPILoadError, WriteError, CLIError) as exc:
-        parser.error(str(exc))
-        return 2
 
     for warning in run.result.warnings:
-        print(f"Warning: {warning}")
+        click.echo(f"Warning: {warning}", err=True)
 
     if run.verification_report is not None:
-        print(format_report(run.verification_report))
+        click.echo(format_report(run.verification_report))
         if run.verification_report.mismatch_count > 0:
-            return 1
+            mismatch_count = run.verification_report.mismatch_count
+            raise VerificationMismatchError(
+                f"Verification failed with {mismatch_count} schema mismatches."
+            )
 
-    return 0
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+main = click.Command(
+    name="openapi-to-pydantic-generator",
+    help="Generate endpoint-scoped pydantic models from OpenAPI YAML",
+    callback=_run_cli,
+    params=[
+        click.Option(
+            ["--input", "input_path"],
+            required=True,
+            type=click.Path(path_type=Path, dir_okay=False, readable=True),
+            help="Path to an OpenAPI YAML file",
+        ),
+        click.Option(
+            ["--output", "output_path"],
+            required=True,
+            type=click.Path(path_type=Path, file_okay=False),
+            help="Output directory for generated packages",
+        ),
+        click.Option(
+            ["--verify"],
+            is_flag=True,
+            help="Run schema equivalence verification against generated models",
+        ),
+    ],
+)

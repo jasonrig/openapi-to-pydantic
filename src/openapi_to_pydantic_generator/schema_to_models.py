@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -120,7 +121,7 @@ class SchemaConverter:
     ) -> SectionModel:
         """Build models for a single section schema."""
         context = _SectionContext()
-        normalized_schema = self._normalize_nullable(deep_copy(schema))
+        normalized_schema = self._normalize_nullable(deepcopy(schema))
 
         if self._is_object_schema(normalized_schema):
             root_name = self._unique_name(class_name(root_class_name), context)
@@ -132,25 +133,10 @@ class SchemaConverter:
             root_class = root_name
         else:
             root_name = self._unique_name(class_name(root_class_name), context)
-            annotation = self._schema_to_annotation(
+            self._append_root_model(
+                model_name=root_name,
                 schema=normalized_schema,
-                hint=f"{root_name}Value",
                 context=context,
-            )
-            context.models.append(
-                ModelDef(
-                    name=root_name,
-                    is_root=True,
-                    root_annotation=annotation,
-                    fields=(),
-                    config=ModelSchemaConfig(
-                        docstring=self._string_or_none(normalized_schema.get("description")),
-                        title=self._string_or_none(normalized_schema.get("title")),
-                        extra_behavior=None,
-                        schema_extra=self._schema_extra(normalized_schema),
-                        additional_properties_annotation=None,
-                    ),
-                )
             )
             root_class = root_name
 
@@ -173,7 +159,7 @@ class SchemaConverter:
 
         if len(ordered_statuses) == 1:
             status = ordered_statuses[0]
-            schema = self._normalize_nullable(deep_copy(schemas_by_status[status]))
+            schema = self._normalize_nullable(deepcopy(schemas_by_status[status]))
             root_name = self._unique_name(class_name(root_class_name), context)
             if self._is_object_schema(schema):
                 self._build_object_model(
@@ -182,25 +168,10 @@ class SchemaConverter:
                     context=context,
                 )
             else:
-                annotation = self._schema_to_annotation(
+                self._append_root_model(
+                    model_name=root_name,
                     schema=schema,
-                    hint=f"{root_name}Value",
                     context=context,
-                )
-                context.models.append(
-                    ModelDef(
-                        name=root_name,
-                        is_root=True,
-                        root_annotation=annotation,
-                        fields=(),
-                        config=ModelSchemaConfig(
-                            docstring=self._string_or_none(schema.get("description")),
-                            title=self._string_or_none(schema.get("title")),
-                            extra_behavior=None,
-                            schema_extra=self._schema_extra(schema),
-                            additional_properties_annotation=None,
-                        ),
-                    )
                 )
             return SectionModel(
                 section_name=section_name,
@@ -209,9 +180,8 @@ class SchemaConverter:
             )
 
         option_annotations: list[str] = []
-
         for status in ordered_statuses:
-            schema = self._normalize_nullable(deep_copy(schemas_by_status[status]))
+            schema = self._normalize_nullable(deepcopy(schemas_by_status[status]))
             status_model_name = self._unique_name(
                 class_name(f"{root_class_name}_{status}"),
                 context,
@@ -224,25 +194,10 @@ class SchemaConverter:
                 )
                 option_annotations.append(status_model_name)
             else:
-                annotation = self._schema_to_annotation(
+                self._append_root_model(
+                    model_name=status_model_name,
                     schema=schema,
-                    hint=f"{status_model_name}Value",
                     context=context,
-                )
-                context.models.append(
-                    ModelDef(
-                        name=status_model_name,
-                        is_root=True,
-                        root_annotation=annotation,
-                        fields=(),
-                        config=ModelSchemaConfig(
-                            docstring=self._string_or_none(schema.get("description")),
-                            title=self._string_or_none(schema.get("title")),
-                            extra_behavior=None,
-                            schema_extra=self._schema_extra(schema),
-                            additional_properties_annotation=None,
-                        ),
-                    )
                 )
                 option_annotations.append(status_model_name)
 
@@ -292,6 +247,34 @@ class SchemaConverter:
         )
         return model_name
 
+    def _append_root_model(
+        self,
+        *,
+        model_name: str,
+        schema: dict[str, Any],
+        context: _SectionContext,
+    ) -> None:
+        annotation = self._schema_to_annotation(
+            schema=schema,
+            hint=f"{model_name}Value",
+            context=context,
+        )
+        context.models.append(
+            ModelDef(
+                name=model_name,
+                is_root=True,
+                root_annotation=annotation,
+                fields=(),
+                config=ModelSchemaConfig(
+                    docstring=self._string_or_none(schema.get("description")),
+                    title=self._string_or_none(schema.get("title")),
+                    extra_behavior=None,
+                    schema_extra=self._schema_extra(schema),
+                    additional_properties_annotation=None,
+                ),
+            )
+        )
+
     def _build_model_fields(
         self,
         *,
@@ -334,7 +317,7 @@ class SchemaConverter:
         context: _SectionContext,
         used_field_names: set[str],
     ) -> FieldDef | None:
-        prop_schema = self._normalize_nullable(deep_copy(prop.raw_schema))
+        prop_schema = self._normalize_nullable(deepcopy(prop.raw_schema))
         field_name = self._field_name(prop.source_name, used_field_names)
         used_field_names.add(field_name)
         annotation = self._schema_to_annotation(
@@ -382,7 +365,7 @@ class SchemaConverter:
         schema_extra = self._schema_extra(schema)
         if isinstance(additional_properties, dict):
             schema_extra["additionalProperties"] = sanitize_json_schema_extra(
-                deep_copy(additional_properties)
+                deepcopy(additional_properties)
             )
 
         return ModelSchemaConfig(
@@ -393,7 +376,8 @@ class SchemaConverter:
             additional_properties_annotation=additional_properties_annotation,
         )
 
-    def _field_name(self, source_name: str, used_names: set[str]) -> str:
+    @staticmethod
+    def _field_name(source_name: str, used_names: set[str]) -> str:
         candidate = sanitize_identifier(source_name)
         if (
             candidate in _BASEMODEL_RESERVED
@@ -414,7 +398,7 @@ class SchemaConverter:
         metadata: dict[str, Any] = {}
         for key in _DOC_FIELDS:
             if key in schema:
-                metadata[key] = deep_copy(schema[key])
+                metadata[key] = deepcopy(schema[key])
 
         extra: dict[str, Any] = {}
         for key in (
@@ -434,10 +418,10 @@ class SchemaConverter:
         )
         extra.update(passthrough)
         if isinstance(schema.get("items"), dict):
-            extra["items"] = sanitize_json_schema_extra(deep_copy(schema["items"]))
+            extra["items"] = sanitize_json_schema_extra(deepcopy(schema["items"]))
         if isinstance(schema.get("additionalProperties"), dict):
             extra["additionalProperties"] = sanitize_json_schema_extra(
-                deep_copy(schema["additionalProperties"])
+                deepcopy(schema["additionalProperties"])
             )
 
         if extra:
@@ -458,7 +442,7 @@ class SchemaConverter:
             "deprecated",
         ):
             if key in schema:
-                extra[key] = sanitize_json_schema_extra(deep_copy(schema[key]))
+                extra[key] = sanitize_json_schema_extra(deepcopy(schema[key]))
 
         passthrough = self._passthrough_schema_extra(
             schema=schema,
@@ -479,7 +463,7 @@ class SchemaConverter:
                 continue
             if key in structural_keys:
                 continue
-            passthrough[key] = sanitize_json_schema_extra(deep_copy(value))
+            passthrough[key] = sanitize_json_schema_extra(deepcopy(value))
         return passthrough
 
     def _schema_to_annotation(
@@ -538,7 +522,7 @@ class SchemaConverter:
             if member == "null":
                 members.append("None")
                 continue
-            member_schema = deep_copy(schema)
+            member_schema = deepcopy(schema)
             member_schema["type"] = member
             members.append(
                 self._schema_to_annotation(
@@ -614,9 +598,7 @@ class SchemaConverter:
     ) -> str:
         options: list[str] = []
         for index, item in enumerate(schemas):
-            item_schema = (
-                self._normalize_nullable(deep_copy(item)) if isinstance(item, dict) else {}
-            )
+            item_schema = self._normalize_nullable(deepcopy(item)) if isinstance(item, dict) else {}
             options.append(
                 self._schema_to_annotation(
                     schema=item_schema,
@@ -662,13 +644,13 @@ class SchemaConverter:
             item_schema = {}
             properties = schema.get("properties")
             if isinstance(properties, dict):
-                item_schema = {"type": "object", "properties": deep_copy(properties)}
+                item_schema = {"type": "object", "properties": deepcopy(properties)}
                 required = schema.get("required")
                 if isinstance(required, list):
                     item_schema["required"] = [item for item in required if isinstance(item, str)]
 
         item_annotation = self._schema_to_annotation(
-            schema=self._normalize_nullable(deep_copy(item_schema)),
+            schema=self._normalize_nullable(deepcopy(item_schema)),
             hint=f"{hint}Item",
             context=context,
         )
@@ -699,7 +681,7 @@ class SchemaConverter:
         additional = schema.get("additionalProperties")
         if isinstance(additional, dict):
             value_annotation = self._schema_to_annotation(
-                schema=self._normalize_nullable(deep_copy(additional)),
+                schema=self._normalize_nullable(deepcopy(additional)),
                 hint=f"{hint}Additional",
                 context=context,
             )
@@ -714,7 +696,8 @@ class SchemaConverter:
             return nested_name
         return "dict[str, Any]"
 
-    def _make_union(self, annotations: list[str]) -> str:
+    @staticmethod
+    def _make_union(annotations: list[str]) -> str:
         deduped: list[str] = []
         for annotation in annotations:
             if annotation not in deduped:
@@ -737,11 +720,12 @@ class SchemaConverter:
             normalize_item=self._normalize_nullable,
         )
 
-    def _is_object_schema(self, schema: dict[str, Any]) -> bool:
+    @staticmethod
+    def _is_object_schema(schema: dict[str, Any]) -> bool:
         return is_object_schema(schema)
 
+    @staticmethod
     def _is_discriminator_compatible(
-        self,
         one_of: list[Any],
         property_name: str,
     ) -> bool:
@@ -765,7 +749,7 @@ class SchemaConverter:
 
     def _normalize_nullable(self, schema: dict[str, Any]) -> dict[str, Any]:
         if self._openapi_version.startswith("3.0") and schema.get("nullable") is True:
-            schema = deep_copy(schema)
+            schema = deepcopy(schema)
             schema.pop("nullable", None)
             schema_type = schema.get("type")
             if isinstance(schema_type, str):
@@ -774,12 +758,13 @@ class SchemaConverter:
                 if "null" not in schema_type:
                     schema_type.append("null")
             else:
-                original = deep_copy(schema)
+                original = deepcopy(schema)
                 schema.clear()
                 schema["anyOf"] = [original, {"type": "null"}]
         return schema
 
-    def _unique_name(self, base_name: str, context: _SectionContext) -> str:
+    @staticmethod
+    def _unique_name(base_name: str, context: _SectionContext) -> str:
         if base_name not in context.used_names:
             context.used_names.add(base_name)
             return base_name
@@ -798,15 +783,6 @@ class SchemaConverter:
 def safe_literal(value: Any) -> str:
     """Return a safe literal representation for annotation contexts."""
     return repr(value)
-
-
-def deep_copy(value: Any) -> Any:
-    """Copy JSON-like values without importing the whole copy module repeatedly."""
-    if isinstance(value, dict):
-        return {key: deep_copy(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [deep_copy(item) for item in value]
-    return value
 
 
 def sanitize_json_schema_extra(value: Any) -> Any:

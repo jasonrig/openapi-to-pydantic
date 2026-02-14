@@ -6,8 +6,9 @@ from copy import deepcopy
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
+from .json_types import JSONMapping, JSONObject, JSONValue, MutableJSONObject
 from .schema_utils import merge_all_of_schema
 
 _ORDER_INSENSITIVE_KEYS = {"required", "enum", "allOf", "anyOf", "oneOf"}
@@ -19,21 +20,21 @@ class Mismatch:
     """Subset mismatch information."""
 
     path: str
-    expected: Any
-    actual: Any
+    expected: JSONValue
+    actual: JSONValue
 
 
-def normalize_source_schema(schema: dict[str, Any]) -> dict[str, Any]:
+def normalize_source_schema(schema: JSONObject) -> MutableJSONObject:
     """Normalize source schema from OpenAPI for comparison."""
-    normalized = deepcopy(schema)
+    normalized: JSONValue = deepcopy(dict(schema))
     normalized = _normalize_nullable(normalized)
     normalized = _normalize_all_of(normalized)
     return _as_dict(_normalize_structural(normalized))
 
 
-def normalize_generated_schema(schema: dict[str, Any]) -> dict[str, Any]:
+def normalize_generated_schema(schema: JSONObject) -> MutableJSONObject:
     """Normalize pydantic-generated schema for comparison."""
-    normalized = deepcopy(schema)
+    normalized: JSONValue = deepcopy(dict(schema))
     normalized = _inline_local_refs(normalized)
     if isinstance(normalized, dict):
         normalized.pop("$defs", None)
@@ -43,7 +44,9 @@ def normalize_generated_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return _as_dict(_normalize_structural(normalized))
 
 
-def subset_mismatch(expected: Any, actual: Any, *, path: str = "$") -> Mismatch | None:
+def subset_mismatch(
+    expected: JSONValue, actual: JSONValue, *, path: str = "$"
+) -> Optional[Mismatch]:
     """Return first mismatch where expected is not a subset of actual."""
     if isinstance(expected, dict):
         return _dict_subset_mismatch(expected, actual, path=path)
@@ -59,11 +62,11 @@ def subset_mismatch(expected: Any, actual: Any, *, path: str = "$") -> Mismatch 
 
 
 def _dict_subset_mismatch(
-    expected: dict[str, Any],
-    actual: Any,
+    expected: JSONMapping,
+    actual: JSONValue,
     *,
     path: str,
-) -> Mismatch | None:
+) -> Optional[Mismatch]:
     if not isinstance(actual, dict):
         return Mismatch(path=path, expected=expected, actual=actual)
     for key, expected_value in expected.items():
@@ -79,7 +82,7 @@ def _dict_subset_mismatch(
     return None
 
 
-def _normalize_nullable(node: Any) -> Any:
+def _normalize_nullable(node: JSONValue) -> JSONValue:
     if isinstance(node, list):
         return [_normalize_nullable(item) for item in node]
     if not isinstance(node, dict):
@@ -94,16 +97,16 @@ def _normalize_nullable(node: Any) -> Any:
     if nullable is True:
         schema_type = normalized.get("type")
         if isinstance(schema_type, str):
-            normalized["type"] = sorted([schema_type, "null"])
+            normalized["type"] = _to_json_value_list(sorted([schema_type, "null"]))
         elif isinstance(schema_type, list):
             members = [member for member in schema_type if isinstance(member, str)]
             if "null" not in members:
                 members.append("null")
-            normalized["type"] = sorted(set(members))
+            normalized["type"] = _to_json_value_list(sorted(set(members)))
         else:
             wrapped = {key: value for key, value in normalized.items() if key != "anyOf"}
             any_of = normalized.get("anyOf")
-            options: list[Any] = []
+            options: list[JSONValue] = []
             if isinstance(any_of, list):
                 options.extend(any_of)
             else:
@@ -113,7 +116,7 @@ def _normalize_nullable(node: Any) -> Any:
     return normalized
 
 
-def _normalize_structural(node: Any, *, parent_key: Optional[str] = None) -> Any:
+def _normalize_structural(node: JSONValue, *, parent_key: Optional[str] = None) -> JSONValue:
     if isinstance(node, list):
         normalized_list = [_normalize_structural(item) for item in node]
         if parent_key in _ORDER_INSENSITIVE_KEYS:
@@ -121,7 +124,7 @@ def _normalize_structural(node: Any, *, parent_key: Optional[str] = None) -> Any
         return normalized_list
 
     if isinstance(node, dict):
-        normalized_dict = {}
+        normalized_dict: MutableJSONObject = {}
         for key, value in sorted(node.items()):
             if key in _IGNORED_KEYS:
                 continue
@@ -141,8 +144,9 @@ def _normalize_structural(node: Any, *, parent_key: Optional[str] = None) -> Any
         _drop_empty_all_of(normalized_dict)
         _drop_any_of_option_descriptions(normalized_dict)
 
-        if isinstance(normalized_dict.get("description"), str):
-            normalized_dict["description"] = _normalize_description(normalized_dict["description"])
+        description = normalized_dict.get("description")
+        if isinstance(description, str):
+            normalized_dict["description"] = _normalize_description(description)
 
         if (
             normalized_dict.get("type") == "object"
@@ -156,7 +160,7 @@ def _normalize_structural(node: Any, *, parent_key: Optional[str] = None) -> Any
     return node
 
 
-def _normalize_all_of(node: Any) -> Any:
+def _normalize_all_of(node: JSONValue) -> JSONValue:
     if isinstance(node, list):
         return [_normalize_all_of(item) for item in node]
     if not isinstance(node, dict):
@@ -180,7 +184,7 @@ def _normalize_description(value: str) -> str:
     return _DESC_BULLET_SPACING.sub("\n*", collapsed)
 
 
-def _collapse_any_of_simple_types(node: dict[str, Any]) -> None:
+def _collapse_any_of_simple_types(node: MutableJSONObject) -> None:
     any_of = node.get("anyOf")
     if not isinstance(any_of, list) or not any_of:
         return
@@ -196,11 +200,11 @@ def _collapse_any_of_simple_types(node: dict[str, Any]) -> None:
         if not isinstance(option_type, str):
             return
         members.append(option_type)
-    node["type"] = sorted(set(members))
+    node["type"] = _to_json_value_list(sorted(set(members)))
     node.pop("anyOf", None)
 
 
-def _collapse_singleton_any_of(node: dict[str, Any]) -> None:
+def _collapse_singleton_any_of(node: MutableJSONObject) -> None:
     any_of = node.get("anyOf")
     if not isinstance(any_of, list) or len(any_of) != 1:
         return
@@ -212,12 +216,12 @@ def _collapse_singleton_any_of(node: dict[str, Any]) -> None:
         node.setdefault(key, value)
 
 
-def _collapse_nullable_any_of(node: dict[str, Any]) -> None:
+def _collapse_nullable_any_of(node: MutableJSONObject) -> None:
     any_of = node.get("anyOf")
     if not isinstance(any_of, list) or len(any_of) != 2:
         return
-    null_option: dict[str, Any] | None = None
-    typed_option: dict[str, Any] | None = None
+    null_option: Optional[MutableJSONObject] = None
+    typed_option: Optional[MutableJSONObject] = None
     for option in any_of:
         if not isinstance(option, dict):
             return
@@ -239,10 +243,10 @@ def _collapse_nullable_any_of(node: dict[str, Any]) -> None:
             continue
         node.setdefault(key, value)
     if isinstance(option_type, str):
-        node["type"] = sorted([option_type, "null"])
+        node["type"] = _to_json_value_list(sorted([option_type, "null"]))
 
 
-def _normalize_malformed_array_schema(node: dict[str, Any]) -> None:
+def _normalize_malformed_array_schema(node: MutableJSONObject) -> None:
     if node.get("type") != "array":
         return
     if "items" in node or "properties" not in node:
@@ -250,14 +254,14 @@ def _normalize_malformed_array_schema(node: dict[str, Any]) -> None:
     properties = node.pop("properties")
     if not isinstance(properties, dict):
         return
-    item_schema: dict[str, Any] = {"type": "object", "properties": properties}
+    item_schema: MutableJSONObject = {"type": "object", "properties": properties}
     required = node.pop("required", None)
     if isinstance(required, list):
         item_schema["required"] = required
     node["items"] = item_schema
 
 
-def _drop_empty_all_of(node: dict[str, Any]) -> None:
+def _drop_empty_all_of(node: MutableJSONObject) -> None:
     all_of = node.get("allOf")
     if not isinstance(all_of, list):
         return
@@ -265,7 +269,7 @@ def _drop_empty_all_of(node: dict[str, Any]) -> None:
         node.pop("allOf", None)
 
 
-def _drop_any_of_option_descriptions(node: dict[str, Any]) -> None:
+def _drop_any_of_option_descriptions(node: MutableJSONObject) -> None:
     any_of = node.get("anyOf")
     if not isinstance(any_of, list):
         return
@@ -275,7 +279,7 @@ def _drop_any_of_option_descriptions(node: dict[str, Any]) -> None:
         option.pop("description", None)
 
 
-def _normalize_const_enum(node: dict[str, Any]) -> None:
+def _normalize_const_enum(node: MutableJSONObject) -> None:
     const_value = node.get("const")
     enum_value = node.get("enum")
     if const_value is not None and enum_value is None:
@@ -283,7 +287,7 @@ def _normalize_const_enum(node: dict[str, Any]) -> None:
         node.pop("const", None)
 
 
-def _normalize_type_list_forms(node: dict[str, Any]) -> None:
+def _normalize_type_list_forms(node: MutableJSONObject) -> None:
     schema_type = node.get("type")
     if not isinstance(schema_type, list):
         return
@@ -294,22 +298,22 @@ def _normalize_type_list_forms(node: dict[str, Any]) -> None:
     if len(members) == 1:
         node["type"] = members[0]
         return
-    node["type"] = sorted(set(members))
+    node["type"] = _to_json_value_list(sorted(set(members)))
 
 
-def _normalize_required_properties(node: dict[str, Any]) -> None:
+def _normalize_required_properties(node: MutableJSONObject) -> None:
     required = node.get("required")
     properties = node.get("properties")
     if not isinstance(required, list) or not isinstance(properties, dict):
         return
     filtered = [item for item in required if isinstance(item, str) and item in properties]
     if filtered:
-        node["required"] = filtered
+        node["required"] = _to_json_value_list(filtered)
     else:
         node.pop("required", None)
 
 
-def _normalize_enum_type_conflict(node: dict[str, Any]) -> None:
+def _normalize_enum_type_conflict(node: MutableJSONObject) -> None:
     enum_value = node.get("enum")
     schema_type = node.get("type")
     if not isinstance(enum_value, list) or not enum_value:
@@ -326,7 +330,7 @@ def _normalize_enum_type_conflict(node: dict[str, Any]) -> None:
     if schema_type != "object":
         return
 
-    inferred_type: str | None = None
+    inferred_type: Optional[str] = None
     if all(isinstance(item, str) for item in enum_value):
         inferred_type = "string"
     elif all(isinstance(item, bool) for item in enum_value):
@@ -342,14 +346,16 @@ def _normalize_enum_type_conflict(node: dict[str, Any]) -> None:
         node["type"] = inferred_type
 
 
-def _list_subset_mismatch(expected: list[Any], actual: list[Any], *, path: str) -> Mismatch | None:
+def _list_subset_mismatch(
+    expected: list[JSONValue], actual: list[JSONValue], *, path: str
+) -> Optional[Mismatch]:
     used_indexes: set[int] = set()
 
-    def _backtrack(index: int) -> Mismatch | None:
+    def _backtrack(index: int) -> Optional[Mismatch]:
         if index >= len(expected):
             return None
         expected_item = expected[index]
-        best_mismatch: Mismatch | None = None
+        best_mismatch: Optional[Mismatch] = None
         for candidate_index, actual_item in enumerate(actual):
             if candidate_index in used_indexes:
                 continue
@@ -379,11 +385,11 @@ def _list_subset_mismatch(expected: list[Any], actual: list[Any], *, path: str) 
     return _backtrack(0)
 
 
-def _inline_local_refs(schema: Any) -> Any:
+def _inline_local_refs(schema: JSONValue) -> JSONValue:
     if not isinstance(schema, dict):
         return schema
     defs_value = schema.get("$defs")
-    defs: dict[str, Any]
+    defs: dict[str, JSONValue]
     if isinstance(defs_value, dict):
         defs = {str(key): value for key, value in defs_value.items()}
     else:
@@ -391,7 +397,9 @@ def _inline_local_refs(schema: Any) -> Any:
     return _resolve_ref_node(schema, defs=defs, stack=())
 
 
-def _resolve_ref_node(node: Any, *, defs: dict[str, Any], stack: tuple[str, ...]) -> Any:
+def _resolve_ref_node(
+    node: JSONValue, *, defs: dict[str, JSONValue], stack: tuple[str, ...]
+) -> JSONValue:
     if isinstance(node, list):
         return [_resolve_ref_node(item, defs=defs, stack=stack) for item in node]
     if not isinstance(node, dict):
@@ -421,11 +429,15 @@ def _resolve_ref_node(node: Any, *, defs: dict[str, Any], stack: tuple[str, ...]
     return {key: _resolve_ref_node(value, defs=defs, stack=stack) for key, value in node.items()}
 
 
-def _canonical_json(value: Any) -> str:
+def _canonical_json(value: JSONValue) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
-def _as_dict(value: Any) -> dict[str, Any]:
+def _as_dict(value: JSONValue) -> MutableJSONObject:
     if isinstance(value, dict):
         return value
     raise ValueError(f"Expected normalized schema object, got {type(value)!r}")
+
+
+def _to_json_value_list(values: list[str]) -> list[JSONValue]:
+    return list(values)

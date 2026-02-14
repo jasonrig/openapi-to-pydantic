@@ -6,12 +6,13 @@ import importlib.util
 import itertools
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from types import ModuleType
 
 from jsonschema.exceptions import SchemaError
 from jsonschema.validators import validator_for
 from pydantic import BaseModel
 
+from .json_types import JSONValue
 from .model_types import VerificationItem
 from .normalize import (
     Mismatch,
@@ -30,8 +31,8 @@ class VerificationMismatch:
     section_name: str
     class_name: str
     path: str
-    expected: Any
-    actual: Any
+    expected: JSONValue
+    actual: JSONValue
 
 
 @dataclass(frozen=True)
@@ -57,8 +58,13 @@ def verify_models(
             module_path=output_dir / item.generated_module_path,
             class_name=item.class_name,
         )
-        generated_schema = generated_class.model_json_schema()
-        generated_normalized = normalize_generated_schema(generated_schema)
+        generated_schema_value: JSONValue = generated_class.model_json_schema()
+        if not isinstance(generated_schema_value, dict):
+            raise RuntimeError(
+                f"Generated schema must be a mapping for {item.class_name}: "
+                f"{type(generated_schema_value)!r}"
+            )
+        generated_normalized = normalize_generated_schema(generated_schema_value)
 
         # Validate generated schema shape. Source schemas can carry OpenAPI-specific forms.
         try:
@@ -139,13 +145,13 @@ def _to_mismatch(*, item: VerificationItem, mismatch: Mismatch) -> VerificationM
     )
 
 
-def short_repr(value: Any, *, limit: int = 160) -> str:
+def short_repr(value: JSONValue, *, limit: int = 160) -> str:
     """A short representation for mismatch diagnostics."""
     text = repr(value)
     return text if len(text) <= limit else f"{text[: limit - 3]}..."
 
 
-def _rebuild_module_models(*, module: Any) -> None:
+def _rebuild_module_models(*, module: ModuleType) -> None:
     model_types: list[type[BaseModel]] = []
     for value in module.__dict__.values():
         if not isinstance(value, type):

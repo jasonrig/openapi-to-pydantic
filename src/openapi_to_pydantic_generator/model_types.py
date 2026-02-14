@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Optional
+
+from .json_types import JSONValue, MutableJSONObject, JSONObject
 
 
 @dataclass(frozen=True)
@@ -14,19 +16,19 @@ class FieldDef:
     source_name: str
     annotation: str
     required: bool
-    default: Any | None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    default: Optional[JSONValue]
+    metadata: MutableJSONObject = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class ModelSchemaConfig:
     """Schema and config metadata for a generated model class."""
 
-    docstring: str | None
-    title: str | None
-    extra_behavior: str | None
-    schema_extra: dict[str, Any]
-    additional_properties_annotation: str | None
+    docstring: Optional[str]
+    title: Optional[str]
+    extra_behavior: Optional[str]
+    schema_extra: MutableJSONObject
+    additional_properties_annotation: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -35,7 +37,7 @@ class ModelDef:
 
     name: str
     is_root: bool
-    root_annotation: str | None
+    root_annotation: Optional[str]
     fields: tuple[FieldDef, ...]
     config: ModelSchemaConfig
 
@@ -57,7 +59,7 @@ class VerificationItem:
     method: str
     section_name: str
     class_name: str
-    source_schema: dict[str, Any]
+    source_schema: JSONObject
     generated_module_path: str
 
 
@@ -68,8 +70,8 @@ class OperationSpec:
     path: str
     method: str
     endpoint_name: str
-    operation: dict[str, Any]
-    path_item: dict[str, Any]
+    operation: JSONObject
+    path_item: JSONObject
 
 
 @dataclass(frozen=True)

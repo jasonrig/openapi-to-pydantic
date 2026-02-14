@@ -120,6 +120,8 @@ def test_generated_modules_pass_ruff_check(tmp_path: Path) -> None:
             "-m",
             "ruff",
             "check",
+            "--ignore",
+            "D100,D101,D102,D103",
             str(output_dir / "models"),
         ],
         check=False,

@@ -38,9 +38,29 @@ testpaths = ["tests"]
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+extend-select = ["D100", "D101", "D102", "D103"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
+disallow_any_explicit = true
+
+[[tool.mypy.overrides]]
+module = ["astroid", "astroid.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pylint", "pylint.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["project_pylint_rules"]
+disallow_subclassing_any = false
 
 [tool.pylint.main]
 py-version = "3.12"
+load-plugins = ["project_pylint_rules"]
+
+[tool.pylint.basic]
+typealias-rgx = "^[A-Z][a-zA-Z0-9]*$"

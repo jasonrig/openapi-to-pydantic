@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Optional
 
 from pydantic import BaseModel, RootModel
 
+from .json_types import JSONObject, JSONValue, MutableJSONObject
 from .model_types import FieldDef, ModelDef, ModelSchemaConfig, SectionModel
 from .naming import class_name, sanitize_identifier
 from .schema_utils import is_object_schema, merge_all_of_schema
@@ -29,6 +31,19 @@ _DOC_FIELDS = {
 
 _BASEMODEL_RESERVED = set(dir(BaseModel))
 _ROOTMODEL_RESERVED = set(dir(RootModel))
+_DEFAULT_PROTECTED_NAMESPACE_PREFIXES = ("model_dump", "model_validate")
+_PROTECTED_NAMESPACE_PREFIXES = tuple(
+    dict.fromkeys(
+        (
+            *_DEFAULT_PROTECTED_NAMESPACE_PREFIXES,
+            *(
+                namespace
+                for namespace in BaseModel.model_config.get("protected_namespaces", ())
+                if isinstance(namespace, str)
+            ),
+        )
+    )
+)
 _BUILTIN_IDENTIFIER_RESERVED = {
     "bool",
     "bytes",
@@ -51,11 +66,7 @@ _JSON_VALUE_ANNOTATION = (
     "dict[str, Optional[Union[str, int, float, bool]]]"
     "]]"
 )
-_PYDANTIC_EXTRA_VALUE_ANNOTATION = (
-    "str | int | float | bool | None | "
-    "list[str | int | float | bool | None] | "
-    "dict[str, str | int | float | bool | None]"
-)
+_PYDANTIC_EXTRA_VALUE_ANNOTATION = _JSON_VALUE_ANNOTATION
 _FIELD_STRUCTURAL_KEYS = {
     "$ref",
     "type",
@@ -102,7 +113,7 @@ class _SectionContext:
 @dataclass(frozen=True)
 class _PropertySpec:
     source_name: str
-    raw_schema: dict[str, Any]
+    raw_schema: MutableJSONObject
     required: bool
 
 
@@ -117,11 +128,11 @@ class SchemaConverter:
         *,
         section_name: str,
         root_class_name: str,
-        schema: dict[str, Any],
+        schema: JSONObject,
     ) -> SectionModel:
         """Build models for a single section schema."""
         context = _SectionContext()
-        normalized_schema = self._normalize_nullable(deepcopy(schema))
+        normalized_schema = self._normalize_nullable(deepcopy(dict(schema)))
 
         if self._is_object_schema(normalized_schema):
             root_name = self._unique_name(class_name(root_class_name), context)
@@ -151,7 +162,7 @@ class SchemaConverter:
         *,
         section_name: str,
         root_class_name: str,
-        schemas_by_status: dict[str, dict[str, Any]],
+        schemas_by_status: Mapping[str, JSONObject],
     ) -> SectionModel:
         """Build models for response and error sections with multiple status codes."""
         context = _SectionContext()
@@ -159,7 +170,7 @@ class SchemaConverter:
 
         if len(ordered_statuses) == 1:
             status = ordered_statuses[0]
-            schema = self._normalize_nullable(deepcopy(schemas_by_status[status]))
+            schema = self._normalize_nullable(deepcopy(dict(schemas_by_status[status])))
             root_name = self._unique_name(class_name(root_class_name), context)
             if self._is_object_schema(schema):
                 self._build_object_model(
@@ -181,7 +192,7 @@ class SchemaConverter:
 
         option_annotations: list[str] = []
         for status in ordered_statuses:
-            schema = self._normalize_nullable(deepcopy(schemas_by_status[status]))
+            schema = self._normalize_nullable(deepcopy(dict(schemas_by_status[status])))
             status_model_name = self._unique_name(
                 class_name(f"{root_class_name}_{status}"),
                 context,
@@ -229,7 +240,7 @@ class SchemaConverter:
         self,
         *,
         model_name: str,
-        schema: dict[str, Any],
+        schema: MutableJSONObject,
         context: _SectionContext,
     ) -> str:
         merged = self._merge_all_of(schema)
@@ -251,7 +262,7 @@ class SchemaConverter:
         self,
         *,
         model_name: str,
-        schema: dict[str, Any],
+        schema: MutableJSONObject,
         context: _SectionContext,
     ) -> None:
         annotation = self._schema_to_annotation(
@@ -279,15 +290,18 @@ class SchemaConverter:
         self,
         *,
         model_name: str,
-        schema: dict[str, Any],
+        schema: MutableJSONObject,
         context: _SectionContext,
     ) -> list[FieldDef]:
         properties = schema.get("properties")
         if not isinstance(properties, dict):
             return []
 
+        required_raw = schema.get("required")
         required_names = (
-            set(schema.get("required", [])) if isinstance(schema.get("required"), list) else set()
+            {name for name in required_raw if isinstance(name, str)}
+            if isinstance(required_raw, list)
+            else set()
         )
         fields: list[FieldDef] = []
         used_field_names: set[str] = set()
@@ -316,7 +330,7 @@ class SchemaConverter:
         prop: _PropertySpec,
         context: _SectionContext,
         used_field_names: set[str],
-    ) -> FieldDef | None:
+    ) -> Optional[FieldDef]:
         prop_schema = self._normalize_nullable(deepcopy(prop.raw_schema))
         field_name = self._field_name(prop.source_name, used_field_names)
         used_field_names.add(field_name)
@@ -344,16 +358,16 @@ class SchemaConverter:
         )
 
     @staticmethod
-    def _field_default(schema: dict[str, Any], *, required: bool) -> Any | None:
+    def _field_default(schema: JSONObject, *, required: bool) -> Optional[JSONValue]:
         if "default" not in schema:
             return None
         if required:
             return None
         return schema["default"]
 
-    def _object_model_config(self, schema: dict[str, Any]) -> ModelSchemaConfig:
+    def _object_model_config(self, schema: JSONObject) -> ModelSchemaConfig:
         additional_properties = schema.get("additionalProperties")
-        additional_properties_annotation: str | None = None
+        additional_properties_annotation: Optional[str] = None
         if isinstance(additional_properties, dict):
             additional_properties_annotation = f"dict[str, {_PYDANTIC_EXTRA_VALUE_ANNOTATION}]"
 
@@ -379,28 +393,29 @@ class SchemaConverter:
     @staticmethod
     def _field_name(source_name: str, used_names: set[str]) -> str:
         candidate = sanitize_identifier(source_name)
-        if (
-            candidate in _BASEMODEL_RESERVED
-            or candidate in _ROOTMODEL_RESERVED
-            or candidate in _BUILTIN_IDENTIFIER_RESERVED
-            or candidate in _RUFF_AMBIGUOUS_IDENTIFIER_NAMES
-        ):
-            candidate = f"{candidate}_field"
+        if _has_protected_namespace_prefix(candidate):
+            candidate = f"field_{candidate}"
+        while _is_reserved_field_name(candidate) or _has_protected_namespace_prefix(candidate):
+            candidate = f"{candidate}_"
         if candidate not in used_names:
             return candidate
 
         suffix = 2
-        while f"{candidate}_{suffix}" in used_names:
+        while (
+            f"{candidate}{suffix}" in used_names
+            or _is_reserved_field_name(f"{candidate}{suffix}")
+            or _has_protected_namespace_prefix(f"{candidate}{suffix}")
+        ):
             suffix += 1
-        return f"{candidate}_{suffix}"
+        return f"{candidate}{suffix}"
 
-    def _field_metadata(self, schema: dict[str, Any]) -> dict[str, Any]:
-        metadata: dict[str, Any] = {}
+    def _field_metadata(self, schema: JSONObject) -> MutableJSONObject:
+        metadata: MutableJSONObject = {}
         for key in _DOC_FIELDS:
             if key in schema:
                 metadata[key] = deepcopy(schema[key])
 
-        extra: dict[str, Any] = {}
+        extra: MutableJSONObject = {}
         for key in (
             "xml",
             "externalDocs",
@@ -428,8 +443,8 @@ class SchemaConverter:
             metadata["json_schema_extra"] = extra
         return metadata
 
-    def _schema_extra(self, schema: dict[str, Any]) -> dict[str, Any]:
-        extra: dict[str, Any] = {}
+    def _schema_extra(self, schema: JSONObject) -> MutableJSONObject:
+        extra: MutableJSONObject = {}
         for key in (
             "xml",
             "externalDocs",
@@ -454,10 +469,10 @@ class SchemaConverter:
     @staticmethod
     def _passthrough_schema_extra(
         *,
-        schema: dict[str, Any],
+        schema: JSONObject,
         structural_keys: set[str],
-    ) -> dict[str, Any]:
-        passthrough: dict[str, Any] = {}
+    ) -> MutableJSONObject:
+        passthrough: MutableJSONObject = {}
         for key, value in schema.items():
             if key in _DOC_FIELDS:
                 continue
@@ -469,7 +484,7 @@ class SchemaConverter:
     def _schema_to_annotation(
         self,
         *,
-        schema: dict[str, Any],
+        schema: JSONObject,
         hint: str,
         context: _SectionContext,
     ) -> str:
@@ -508,10 +523,10 @@ class SchemaConverter:
     def _annotation_from_type_list(
         self,
         *,
-        schema: dict[str, Any],
+        schema: JSONObject,
         hint: str,
         context: _SectionContext,
-    ) -> str | None:
+    ) -> Optional[str]:
         schema_type = schema.get("type")
         if not isinstance(schema_type, list):
             return None
@@ -522,7 +537,7 @@ class SchemaConverter:
             if member == "null":
                 members.append("None")
                 continue
-            member_schema = deepcopy(schema)
+            member_schema = deepcopy(dict(schema))
             member_schema["type"] = member
             members.append(
                 self._schema_to_annotation(
@@ -534,7 +549,7 @@ class SchemaConverter:
         return self._make_union(members)
 
     @staticmethod
-    def _annotation_from_literal(*, schema: dict[str, Any]) -> str | None:
+    def _annotation_from_literal(*, schema: JSONObject) -> Optional[str]:
         if "const" in schema:
             return f"Literal[{safe_literal(schema['const'])}]"
         enum = schema.get("enum")
@@ -546,10 +561,10 @@ class SchemaConverter:
     def _annotation_from_combinators(
         self,
         *,
-        schema: dict[str, Any],
+        schema: JSONObject,
         hint: str,
         context: _SectionContext,
-    ) -> str | None:
+    ) -> Optional[str]:
         one_of = schema.get("oneOf")
         if isinstance(one_of, list) and one_of:
             union_annotation = self._union_from_schema_list(
@@ -592,7 +607,7 @@ class SchemaConverter:
     def _union_from_schema_list(
         self,
         *,
-        schemas: list[Any],
+        schemas: list[JSONValue],
         hint_prefix: str,
         context: _SectionContext,
     ) -> str:
@@ -611,8 +626,8 @@ class SchemaConverter:
     def _apply_discriminator(
         self,
         *,
-        schema: dict[str, Any],
-        one_of: list[Any],
+        schema: JSONObject,
+        one_of: list[JSONValue],
         union_annotation: str,
     ) -> str:
         discriminator = schema.get("discriminator")
@@ -633,13 +648,14 @@ class SchemaConverter:
     def _annotation_for_array(
         self,
         *,
-        schema: dict[str, Any],
+        schema: JSONObject,
         hint: str,
         context: _SectionContext,
     ) -> str:
         items = schema.get("items")
+        item_schema: MutableJSONObject
         if isinstance(items, dict):
-            item_schema = items
+            item_schema = deepcopy(items)
         else:
             item_schema = {}
             properties = schema.get("properties")
@@ -647,7 +663,9 @@ class SchemaConverter:
                 item_schema = {"type": "object", "properties": deepcopy(properties)}
                 required = schema.get("required")
                 if isinstance(required, list):
-                    item_schema["required"] = [item for item in required if isinstance(item, str)]
+                    item_schema["required"] = _to_json_value_list(
+                        [item for item in required if isinstance(item, str)]
+                    )
 
         item_annotation = self._schema_to_annotation(
             schema=self._normalize_nullable(deepcopy(item_schema)),
@@ -664,7 +682,7 @@ class SchemaConverter:
     def _annotation_for_object(
         self,
         *,
-        schema: dict[str, Any],
+        schema: JSONObject,
         hint: str,
         context: _SectionContext,
     ) -> str:
@@ -673,7 +691,7 @@ class SchemaConverter:
             nested_name = self._unique_name(class_name(hint), context)
             self._build_object_model(
                 model_name=nested_name,
-                schema=schema,
+                schema=deepcopy(dict(schema)),
                 context=context,
             )
             return nested_name
@@ -694,7 +712,7 @@ class SchemaConverter:
                 context=context,
             )
             return nested_name
-        return "dict[str, Any]"
+        return f"dict[str, {_JSON_VALUE_ANNOTATION}]"
 
     @staticmethod
     def _make_union(annotations: list[str]) -> str:
@@ -714,19 +732,19 @@ class SchemaConverter:
             return f"Optional[Union[{', '.join(members)}]]"
         return f"Union[{', '.join(deduped)}]"
 
-    def _merge_all_of(self, schema: dict[str, Any]) -> dict[str, Any]:
+    def _merge_all_of(self, schema: JSONObject) -> MutableJSONObject:
         return merge_all_of_schema(
             schema,
             normalize_item=self._normalize_nullable,
         )
 
     @staticmethod
-    def _is_object_schema(schema: dict[str, Any]) -> bool:
+    def _is_object_schema(schema: JSONObject) -> bool:
         return is_object_schema(schema)
 
     @staticmethod
     def _is_discriminator_compatible(
-        one_of: list[Any],
+        one_of: list[JSONValue],
         property_name: str,
     ) -> bool:
         for option in one_of:
@@ -747,13 +765,13 @@ class SchemaConverter:
             return False
         return True
 
-    def _normalize_nullable(self, schema: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_nullable(self, schema: MutableJSONObject) -> MutableJSONObject:
         if self._openapi_version.startswith("3.0") and schema.get("nullable") is True:
             schema = deepcopy(schema)
             schema.pop("nullable", None)
             schema_type = schema.get("type")
             if isinstance(schema_type, str):
-                schema["type"] = [schema_type, "null"]
+                schema["type"] = _to_json_value_list([schema_type, "null"])
             elif isinstance(schema_type, list):
                 if "null" not in schema_type:
                     schema_type.append("null")
@@ -776,19 +794,19 @@ class SchemaConverter:
         return name
 
     @staticmethod
-    def _string_or_none(value: Any) -> str | None:
+    def _string_or_none(value: JSONValue) -> Optional[str]:
         return value if isinstance(value, str) and value else None
 
 
-def safe_literal(value: Any) -> str:
+def safe_literal(value: JSONValue) -> str:
     """Return a safe literal representation for annotation contexts."""
     return repr(value)
 
 
-def sanitize_json_schema_extra(value: Any) -> Any:
+def sanitize_json_schema_extra(value: JSONValue) -> JSONValue:
     """Drop external refs in json_schema_extra payloads to keep pydantic schema generation valid."""
     if isinstance(value, dict):
-        sanitized: dict[str, Any] = {}
+        sanitized: MutableJSONObject = {}
         for key, item in value.items():
             if key == "$ref":
                 continue
@@ -797,3 +815,20 @@ def sanitize_json_schema_extra(value: Any) -> Any:
     if isinstance(value, list):
         return [sanitize_json_schema_extra(item) for item in value]
     return value
+
+
+def _to_json_value_list(values: list[str]) -> list[JSONValue]:
+    return list(values)
+
+
+def _is_reserved_field_name(candidate: str) -> bool:
+    return (
+        candidate in _BASEMODEL_RESERVED
+        or candidate in _ROOTMODEL_RESERVED
+        or candidate in _BUILTIN_IDENTIFIER_RESERVED
+        or candidate in _RUFF_AMBIGUOUS_IDENTIFIER_NAMES
+    )
+
+
+def _has_protected_namespace_prefix(candidate: str) -> bool:
+    return any(candidate.startswith(prefix) for prefix in _PROTECTED_NAMESPACE_PREFIXES)

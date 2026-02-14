@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
+from .json_types import JSONObject, JSONValue, MutableJSONObject
 from .model_types import OperationSpec
 
 
@@ -20,28 +22,28 @@ _HTTP_SUCCESS_PREFIX = "2"
 class SectionSchemas:
     """Resolved section schemas for one endpoint operation."""
 
-    url_params: Optional[dict[str, Any]]
-    query_params: Optional[dict[str, Any]]
-    headers: Optional[dict[str, Any]]
-    cookies: Optional[dict[str, Any]]
-    body: Optional[dict[str, Any]]
-    response_schemas: dict[str, dict[str, Any]]
-    error_schemas: dict[str, dict[str, Any]]
+    url_params: Optional[MutableJSONObject]
+    query_params: Optional[MutableJSONObject]
+    headers: Optional[MutableJSONObject]
+    cookies: Optional[MutableJSONObject]
+    body: Optional[MutableJSONObject]
+    response_schemas: dict[str, MutableJSONObject]
+    error_schemas: dict[str, MutableJSONObject]
 
 
 class Resolver:
     """Resolve local references and build endpoint section schemas."""
 
-    def __init__(self, document: dict[str, Any]) -> None:
+    def __init__(self, document: JSONObject) -> None:
         self._document = deepcopy(document)
-        self._cache: dict[str, Any] = {}
+        self._cache: dict[str, JSONValue] = {}
         self._cycle_cache: set[str] = set()
 
-    def resolve_node(self, node: Any) -> Any:
+    def resolve_node(self, node: JSONValue) -> JSONValue:
         """Recursively inline references in a node."""
         return self._resolve(node, stack=())
 
-    def _resolve(self, node: Any, stack: tuple[str, ...]) -> Any:
+    def _resolve(self, node: JSONValue, stack: tuple[str, ...]) -> JSONValue:
         if isinstance(node, list):
             return [self._resolve(item, stack) for item in node]
         if not isinstance(node, dict):
@@ -53,6 +55,8 @@ class Resolver:
             siblings = {key: value for key, value in node.items() if key != "$ref"}
             if siblings:
                 merged = deepcopy(resolved_ref)
+                if not isinstance(merged, dict):
+                    return merged
                 for key, value in siblings.items():
                     merged[key] = self._resolve(value, stack)
                 return self._resolve(merged, stack)
@@ -60,7 +64,7 @@ class Resolver:
 
         return {key: self._resolve(value, stack) for key, value in node.items()}
 
-    def _resolve_ref(self, ref: str, stack: tuple[str, ...]) -> Any:
+    def _resolve_ref(self, ref: str, stack: tuple[str, ...]) -> JSONValue:
         if ref in stack:
             # Keep recursive structures representable without infinite expansion.
             self._cycle_cache.add(ref)
@@ -72,7 +76,7 @@ class Resolver:
         if not ref.startswith("#/"):
             raise ResolveError(f"Only local references are currently supported: {ref}")
 
-        current: Any = self._document
+        current: JSONValue = self._document
         for token in ref[2:].split("/"):
             token = token.replace("~1", "/").replace("~0", "~")
             if not isinstance(current, dict) or token not in current:
@@ -108,8 +112,8 @@ class Resolver:
 
     def _build_parameter_schemas(
         self,
-        parameters: list[dict[str, Any]],
-    ) -> dict[str, Optional[dict[str, Any]]]:
+        parameters: Sequence[JSONObject],
+    ) -> dict[str, Optional[MutableJSONObject]]:
         return {
             "path": self._parameters_to_schema(parameters, location="path"),
             "query": self._parameters_to_schema(parameters, location="query"),
@@ -119,10 +123,10 @@ class Resolver:
 
     def _split_response_schemas(
         self,
-        responses_raw: Any,
-    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
-        success: dict[str, dict[str, Any]] = {}
-        errors: dict[str, dict[str, Any]] = {}
+        responses_raw: Optional[JSONValue],
+    ) -> tuple[dict[str, MutableJSONObject], dict[str, MutableJSONObject]]:
+        success: dict[str, MutableJSONObject] = {}
+        errors: dict[str, MutableJSONObject] = {}
         if not isinstance(responses_raw, dict):
             return success, errors
 
@@ -136,11 +140,11 @@ class Resolver:
             target[status_code] = schema
         return success, errors
 
-    def _collect_parameters(self, node: dict[str, Any]) -> list[dict[str, Any]]:
+    def _collect_parameters(self, node: JSONObject) -> list[MutableJSONObject]:
         raw = node.get("parameters")
         if not isinstance(raw, list):
             return []
-        parameters: list[dict[str, Any]] = []
+        parameters: list[MutableJSONObject] = []
         for parameter in raw:
             if not isinstance(parameter, dict):
                 continue
@@ -151,11 +155,11 @@ class Resolver:
 
     def _parameters_to_schema(
         self,
-        parameters: list[dict[str, Any]],
+        parameters: Sequence[JSONObject],
         *,
         location: str,
-    ) -> Optional[dict[str, Any]]:
-        properties: dict[str, Any] = {}
+    ) -> Optional[MutableJSONObject]:
+        properties: MutableJSONObject = {}
         required: list[str] = []
 
         for parameter in parameters:
@@ -165,7 +169,7 @@ class Resolver:
             if not isinstance(name, str) or not name:
                 continue
 
-            schema: dict[str, Any]
+            schema: MutableJSONObject
             schema_node = parameter.get("schema")
             if isinstance(schema_node, dict):
                 resolved_schema = self.resolve_node(schema_node)
@@ -191,15 +195,17 @@ class Resolver:
         if not properties:
             return None
 
-        schema_obj: dict[str, Any] = {
+        schema_obj: MutableJSONObject = {
             "type": "object",
             "properties": properties,
-            "required": sorted(set(required)),
+            "required": list(sorted(set(required))),
             "additionalProperties": False,
         }
         return schema_obj
 
-    def _request_body_to_schema(self, request_body: Any) -> Optional[dict[str, Any]]:
+    def _request_body_to_schema(
+        self, request_body: Optional[JSONValue]
+    ) -> Optional[MutableJSONObject]:
         if not isinstance(request_body, dict):
             return None
         resolved_body = self.resolve_node(request_body)
@@ -216,7 +222,7 @@ class Resolver:
             "multipart/form-data",
         )
 
-        candidates: list[dict[str, Any]] = []
+        candidates: list[MutableJSONObject] = []
         for media_type in preferred_media_types:
             media = content.get(media_type)
             if isinstance(media, dict):
@@ -233,7 +239,9 @@ class Resolver:
                     return resolved_schema
         return None
 
-    def _response_to_schema(self, response_node: Any) -> Optional[dict[str, Any]]:
+    def _response_to_schema(
+        self, response_node: Optional[JSONValue]
+    ) -> Optional[MutableJSONObject]:
         if not isinstance(response_node, dict):
             return None
         resolved_response = self.resolve_node(response_node)
@@ -251,7 +259,7 @@ class Resolver:
             "application/x-www-form-urlencoded",
         )
 
-        candidates: list[dict[str, Any]] = []
+        candidates: list[MutableJSONObject] = []
         for media_type in preferred_media_types:
             media = content.get(media_type)
             if isinstance(media, dict):

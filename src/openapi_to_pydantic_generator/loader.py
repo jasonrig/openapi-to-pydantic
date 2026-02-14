@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import yaml
 from openapi_python_client.schema import OpenAPI
 from pydantic import ValidationError
+
+from .json_types import JSONObject, JSONValue
 
 
 class OpenAPILoadError(RuntimeError):
     """Raised when a source OpenAPI document cannot be loaded."""
 
 
-def load_openapi_document(path: Path) -> dict[str, Any]:
+def load_openapi_document(path: Path) -> JSONObject:
     """Load and validate an OpenAPI document from YAML."""
     try:
         with path.open("r", encoding="utf-8") as handle:
@@ -24,20 +25,21 @@ def load_openapi_document(path: Path) -> dict[str, Any]:
     except yaml.YAMLError as exc:
         raise OpenAPILoadError(f"Failed to parse YAML in {path}: {exc}") from exc
 
-    if not isinstance(payload, dict):
+    payload_value: JSONValue = payload
+    if not isinstance(payload_value, dict):
         raise OpenAPILoadError(
-            f"OpenAPI document must deserialize to a mapping, got {type(payload)!r}"
+            f"OpenAPI document must deserialize to a mapping, got {type(payload_value)!r}"
         )
 
     try:
-        OpenAPI.model_validate(payload)
+        OpenAPI.model_validate(payload_value)
     except ValidationError as exc:
         raise OpenAPILoadError(f"OpenAPI schema validation failed for {path}: {exc}") from exc
 
-    return payload
+    return payload_value
 
 
-def get_openapi_version(document: dict[str, Any]) -> str:
+def get_openapi_version(document: JSONObject) -> str:
     """Return the declared OpenAPI version string."""
     version = document.get("openapi")
     if not isinstance(version, str) or not version.strip():

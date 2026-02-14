@@ -49,7 +49,16 @@ def write_operation_sections(
 
 def format_generated_tree(*, models_dir: Path) -> None:
     """Run ruff auto-fixes and formatter against generated model files."""
-    _run_ruff(models_dir=models_dir, args=("check", "--fix", str(models_dir)))
+    _run_ruff(
+        models_dir=models_dir,
+        args=(
+            "check",
+            "--fix",
+            "--ignore",
+            "D100,D101,D102,D103",
+            str(models_dir),
+        ),
+    )
     _run_ruff(models_dir=models_dir, args=("format", str(models_dir)))
 
 

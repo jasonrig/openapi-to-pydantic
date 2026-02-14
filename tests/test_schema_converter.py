@@ -6,15 +6,16 @@ import importlib.util
 import itertools
 import tempfile
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Optional, TypeGuard
 
 from pydantic import BaseModel, RootModel
 
 from openapi_to_pydantic_generator.codegen_ast import render_section_module
+from openapi_to_pydantic_generator.json_types import JSONObject, JSONValue, MutableJSONObject
 from openapi_to_pydantic_generator.schema_to_models import SchemaConverter
 
 
-def _build_model_schema(*, schema: dict[str, Any], section_name: str = "body") -> dict[str, Any]:
+def _build_model_schema(*, schema: JSONObject, section_name: str = "body") -> MutableJSONObject:
     converter = SchemaConverter("3.1.0")
     section = converter.build_section_from_schema(
         section_name=section_name,
@@ -38,16 +39,43 @@ def _build_model_schema(*, schema: dict[str, Any], section_name: str = "body") -
                 f"Generated class {section.root_class_name} missing in {module_path}"
             )
         value.model_rebuild(_types_namespace=module.__dict__)
-        schema_output = value.model_json_schema()
-        if not isinstance(schema_output, dict):
+        schema_output_value: JSONValue = value.model_json_schema()
+        if not isinstance(schema_output_value, dict):
             raise RuntimeError(
-                f"Generated model JSON schema must be a mapping, got {type(schema_output)!r}"
+                f"Generated model JSON schema must be a mapping, got {type(schema_output_value)!r}"
             )
-        return schema_output
+        return schema_output_value
+
+
+def _build_model_class(*, schema: JSONObject, section_name: str = "body") -> type[BaseModel]:
+    converter = SchemaConverter("3.1.0")
+    section = converter.build_section_from_schema(
+        section_name=section_name,
+        root_class_name="Body",
+        schema=schema,
+    )
+    source = render_section_module(section)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        module_path = Path(temp_dir) / "generated_section.py"
+        module_path.write_text(source, encoding="utf-8")
+        module_name = f"generated_test_{next(_COUNTER)}"
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Unable to import generated test module from {module_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        value = getattr(module, section.root_class_name, None)
+        if not _is_base_model_type(value):
+            raise RuntimeError(
+                f"Generated class {section.root_class_name} missing in {module_path}"
+            )
+        value.model_rebuild(_types_namespace=module.__dict__)
+        return value
 
 
 def test_reserved_pydantic_member_names_are_rewritten() -> None:
-    """Field names must not shadow BaseModel or RootModel attributes."""
+    """Shadowed names are rewritten and retained through aliases."""
     converter = SchemaConverter("3.1.0")
     section = converter.build_section_from_schema(
         section_name="body",
@@ -56,10 +84,11 @@ def test_reserved_pydantic_member_names_are_rewritten() -> None:
             "type": "object",
             "properties": {
                 "model_dump": {"type": "string"},
+                "model_dump_": {"type": "string"},
                 "model_fields": {"type": "integer"},
-                "root": {"type": "string"},
+                "model_validate": {"type": "string"},
             },
-            "required": ["model_dump", "model_fields", "root"],
+            "required": ["model_dump", "model_dump_", "model_fields", "model_validate"],
             "additionalProperties": False,
         },
     )
@@ -70,10 +99,37 @@ def test_reserved_pydantic_member_names_are_rewritten() -> None:
     assert not generated_names & reserved
     mapping = {field.source_name: field.name for field in root_model.fields}
     assert mapping == {
-        "model_dump": "model_dump_field",
-        "model_fields": "model_fields_field",
-        "root": "root",
+        "model_dump": "field_model_dump",
+        "model_dump_": "field_model_dump2",
+        "model_fields": "model_fields_",
+        "model_validate": "field_model_validate",
     }
+
+    model_type = _build_model_class(
+        schema={
+            "type": "object",
+            "properties": {
+                "model_dump": {"type": "string"},
+                "model_dump_": {"type": "string"},
+                "model_fields": {"type": "integer"},
+                "model_validate": {"type": "string"},
+            },
+            "required": ["model_dump", "model_dump_", "model_fields", "model_validate"],
+            "additionalProperties": False,
+        }
+    )
+    parsed = model_type.model_validate(
+        {
+            "model_dump": "first",
+            "model_dump_": "second",
+            "model_fields": 3,
+            "model_validate": "ok",
+        }
+    )
+    assert getattr(parsed, "field_model_dump") == "first"
+    assert getattr(parsed, "field_model_dump2") == "second"
+    assert getattr(parsed, "model_fields_") == 3
+    assert getattr(parsed, "field_model_validate") == "ok"
 
 
 def test_object_additional_properties_uses_schema_annotation() -> None:
@@ -132,5 +188,5 @@ def test_generated_source_prefers_optional_over_pipe_none() -> None:
 _COUNTER = itertools.count(1)
 
 
-def _is_base_model_type(value: object) -> TypeGuard[type[BaseModel]]:
+def _is_base_model_type(value: Optional[type]) -> TypeGuard[type[BaseModel]]:
     return isinstance(value, type) and issubclass(value, BaseModel)

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, TypeVar, cast
+from typing import ParamSpec, TypeVar
 
 import pytest
 
 _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "openapi_specs"
-_F = TypeVar("_F", bound=Callable[..., object])
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 
 
 def fixture_dir() -> Path:
@@ -22,11 +24,16 @@ def iter_fixture_paths() -> list[Path]:
     return [path for path in paths if path.is_file()]
 
 
-def parametrize_fixtures() -> Callable[[_F], _F]:
+def parametrize_fixtures() -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
     """Parametrize a test over all fixture paths."""
-    decorator = pytest.mark.parametrize(
-        "fixture_path",
-        iter_fixture_paths(),
-        ids=lambda path: path.name,
-    )
-    return cast(Callable[[_F], _F], decorator)
+
+    def _decorator(func: Callable[_P, _R]) -> Callable[_P, _R]:
+        decorator: Callable[[Callable[_P, _R]], Callable[_P, _R]]
+        decorator = pytest.mark.parametrize(
+            "fixture_path",
+            iter_fixture_paths(),
+            ids=lambda path: path.name,
+        )
+        return decorator(func)
+
+    return _decorator

@@ -6,8 +6,9 @@ import keyword
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any
+from typing import Optional
 
+from .json_types import JSONObject, JSONValue
 from .model_types import OperationSpec
 
 _HTTP_METHODS: tuple[str, ...] = (
@@ -68,13 +69,13 @@ def _operation_id_candidate(operation_id: str) -> str:
 class _OperationCandidate:
     path: str
     method: str
-    operation: dict[str, Any]
-    path_item: dict[str, Any]
-    operation_id: str | None
+    operation: JSONObject
+    path_item: JSONObject
+    operation_id: Optional[str]
 
 
 def _collect_operation_candidates(
-    raw_paths: dict[str, dict[str, Any]],
+    raw_paths: dict[str, JSONObject],
 ) -> list[_OperationCandidate]:
     candidates: list[_OperationCandidate] = []
     for path, path_item_untyped in raw_paths.items():
@@ -98,7 +99,7 @@ def _collect_operation_candidates(
     return candidates
 
 
-def _normalize_operation_id(operation_id_raw: object) -> str | None:
+def _normalize_operation_id(operation_id_raw: JSONValue) -> Optional[str]:
     if isinstance(operation_id_raw, str) and operation_id_raw.strip():
         return _operation_id_candidate(operation_id_raw.strip())
     return None
@@ -111,7 +112,7 @@ def _conflicting_operation_ids(candidates: list[_OperationCandidate]) -> set[str
 
 
 def resolve_operations(
-    raw_paths: dict[str, dict[str, Any]],
+    raw_paths: dict[str, JSONObject],
 ) -> tuple[list[OperationSpec], list[str]]:
     """Extract operations and determine endpoint names with hybrid operationId fallback."""
     candidates = _collect_operation_candidates(raw_paths)

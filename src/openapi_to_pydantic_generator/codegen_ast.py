@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Iterable
-from typing import Any
+from typing import Optional
 
+from .json_types import JSONValue
 from .model_types import FieldDef, ModelDef, SectionModel
 
 _TYPING_IMPORT_ORDER: tuple[str, ...] = (
-    "Any",
     "Annotated",
     "Literal",
     "Optional",
@@ -156,7 +156,7 @@ def _expr(code: str) -> ast.expr:
     return parsed.body
 
 
-def _value_expr(value: Any) -> ast.expr:
+def _value_expr(value: Optional[JSONValue]) -> ast.expr:
     parsed = ast.parse(repr(value), mode="eval")
     return parsed.body
 

@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
 import yaml
 from openapi_python_client.schema import OpenAPI
 from pydantic import ValidationError
 
+from openapi_to_pydantic_generator.json_types import JSONObject, JSONValue
 from .fixture_helpers import fixture_dir, parametrize_fixtures
 
 FIXTURE_DIR = fixture_dir()
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
+def _load_yaml(path: Path) -> JSONObject:
     try:
         with path.open("r", encoding="utf-8") as handle:
             data = yaml.safe_load(handle)
@@ -24,10 +24,18 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     except OSError as exc:
         pytest.fail(f"Failed to read fixture {path}: {exc}")
 
-    if not isinstance(data, dict):
-        pytest.fail(f"Fixture {path} must parse to a mapping, got {type(data)!r}")
+    value: JSONValue = data
+    if not isinstance(value, dict):
+        pytest.fail(f"Fixture {path} must parse to a mapping, got {type(value)!r}")
+    assert isinstance(value, dict)
 
-    return cast(dict[str, Any], data)
+    typed: dict[str, JSONValue] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            pytest.fail(f"Fixture {path} has a non-string top-level key: {key!r}")
+        item_value: JSONValue = item
+        typed[key] = item_value
+    return typed
 
 
 def test_fixture_directory_exists() -> None:

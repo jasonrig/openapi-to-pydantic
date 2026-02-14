@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable
+from typing import Optional
+
+from .json_types import JSONObject, JSONValue, MutableJSONObject
 
 
-def is_object_schema(schema: dict[str, Any]) -> bool:
+def is_object_schema(schema: JSONObject) -> bool:
     """Return True when schema behaves as an object schema."""
     schema_type = schema.get("type")
     if schema_type == "object":
@@ -22,23 +25,23 @@ def is_object_schema(schema: dict[str, Any]) -> bool:
 
 
 def merge_all_of_schema(
-    schema: dict[str, Any],
+    schema: JSONObject,
     *,
-    normalize_item: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-) -> dict[str, Any]:
+    normalize_item: Optional[Callable[[MutableJSONObject], MutableJSONObject]] = None,
+) -> MutableJSONObject:
     """Merge object-only allOf chains into a single object schema when possible."""
     all_of = schema.get("allOf")
     if not isinstance(all_of, list) or not all_of:
-        return schema
+        return deepcopy(dict(schema))
 
-    merged = {key: value for key, value in schema.items() if key != "allOf"}
+    merged: MutableJSONObject = {key: value for key, value in schema.items() if key != "allOf"}
     child_schemas = _collect_mergeable_all_of_children(all_of, normalize_item=normalize_item)
     if child_schemas is None:
-        return schema
+        return deepcopy(dict(schema))
 
-    merged_properties: dict[str, Any] = {}
+    merged_properties: MutableJSONObject = {}
     merged_required: set[str] = set()
-    additional_properties: Any = merged.get("additionalProperties")
+    additional_properties: Optional[JSONValue] = merged.get("additionalProperties")
     for child_schema in child_schemas:
         _merge_child_object_data(
             child_schema,
@@ -52,18 +55,18 @@ def merge_all_of_schema(
     if merged_properties:
         merged["properties"] = merged_properties
     if merged_required:
-        merged["required"] = sorted(merged_required)
+        merged["required"] = list(sorted(merged_required))
     if additional_properties is not None:
         merged["additionalProperties"] = additional_properties
     return merged
 
 
 def _collect_mergeable_all_of_children(
-    all_of: list[Any],
+    all_of: list[JSONValue],
     *,
-    normalize_item: Callable[[dict[str, Any]], dict[str, Any]] | None,
-) -> list[dict[str, Any]] | None:
-    children: list[dict[str, Any]] = []
+    normalize_item: Optional[Callable[[MutableJSONObject], MutableJSONObject]],
+) -> Optional[list[MutableJSONObject]]:
+    children: list[MutableJSONObject] = []
     for item in all_of:
         if not isinstance(item, dict):
             return None
@@ -78,9 +81,9 @@ def _collect_mergeable_all_of_children(
 
 
 def _merge_child_object_data(
-    child_schema: dict[str, Any],
+    child_schema: JSONObject,
     *,
-    merged_properties: dict[str, Any],
+    merged_properties: MutableJSONObject,
     merged_required: set[str],
 ) -> None:
     child_properties = child_schema.get("properties")

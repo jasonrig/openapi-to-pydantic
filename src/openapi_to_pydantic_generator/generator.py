@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Optional
 
+from .json_types import MutableJSONObject, JSONObject, JSONValue
 from .loader import (
     OpenAPILoadError,
     ensure_supported_version,
     get_openapi_version,
     load_openapi_document,
 )
-from .model_types import GenerationResult, OperationSpec, VerificationItem
+from .model_types import GenerationResult, OperationSpec, SectionModel, VerificationItem
 from .naming import resolve_operations
 from .resolver import Resolver, SectionSchemas
 from .schema_to_models import SchemaConverter
@@ -30,7 +31,7 @@ class GenerationRun:
     """Generation result with optional verification report."""
 
     result: GenerationResult
-    verification_report: VerificationReport | None
+    verification_report: Optional[VerificationReport]
 
 
 def run_generation(
@@ -40,19 +41,10 @@ def run_generation(
     verify: bool,
 ) -> GenerationRun:
     """Generate models from an OpenAPI document."""
-    document = load_openapi_document(input_path)
-    version = get_openapi_version(document)
-    ensure_supported_version(version)
-
-    raw_paths = document.get("paths")
-    if not isinstance(raw_paths, dict):
-        raise OpenAPILoadError("OpenAPI document missing 'paths' object")
-
-    operations, warnings = resolve_operations(raw_paths)
-
-    models_dir = create_output_layout(output_dir)
-    resolver = Resolver(document)
-    converter = SchemaConverter(version)
+    operations, warnings, resolver, converter, models_dir = _prepare_generation(
+        input_path=input_path,
+        output_dir=output_dir,
+    )
 
     verification_items = _generate_operations(
         operations=operations,
@@ -77,6 +69,34 @@ def run_generation(
         output_dir=output_dir,
     )
     return GenerationRun(result=result, verification_report=report)
+
+
+def _prepare_generation(
+    *,
+    input_path: Path,
+    output_dir: Path,
+) -> tuple[list[OperationSpec], list[str], Resolver, SchemaConverter, Path]:
+    document = load_openapi_document(input_path)
+    version = get_openapi_version(document)
+    ensure_supported_version(version)
+    path_map = _load_path_map(document)
+    operations, warnings = resolve_operations(path_map)
+    models_dir = create_output_layout(output_dir)
+    resolver = Resolver(document)
+    converter = SchemaConverter(version)
+    return operations, warnings, resolver, converter, models_dir
+
+
+def _load_path_map(document: JSONObject) -> dict[str, JSONObject]:
+    raw_paths = document.get("paths")
+    if not isinstance(raw_paths, dict):
+        raise OpenAPILoadError("OpenAPI document missing 'paths' object")
+
+    path_map: dict[str, JSONObject] = {}
+    for path, path_item in raw_paths.items():
+        if isinstance(path, str) and isinstance(path_item, dict):
+            path_map[path] = path_item
+    return path_map
 
 
 def _generate_operations(
@@ -111,11 +131,37 @@ def _build_operation_sections(
     operation: OperationSpec,
     section_schemas: SectionSchemas,
     converter: SchemaConverter,
-) -> tuple[list[Any], list[VerificationItem]]:
-    sections: list[Any] = []
+) -> tuple[list[SectionModel], list[VerificationItem]]:
+    sections: list[SectionModel] = []
     items: list[VerificationItem] = []
 
-    section_schema_map: list[tuple[str, str, dict[str, Any] | None]] = [
+    _append_simple_sections(
+        operation=operation,
+        section_schemas=section_schemas,
+        converter=converter,
+        sections=sections,
+        items=items,
+    )
+    _append_status_sections(
+        operation=operation,
+        section_schemas=section_schemas,
+        converter=converter,
+        sections=sections,
+        items=items,
+    )
+
+    return sections, items
+
+
+def _append_simple_sections(
+    *,
+    operation: OperationSpec,
+    section_schemas: SectionSchemas,
+    converter: SchemaConverter,
+    sections: list[SectionModel],
+    items: list[VerificationItem],
+) -> None:
+    section_schema_map: list[tuple[str, str, Optional[MutableJSONObject]]] = [
         ("url_params", "UrlParams", section_schemas.url_params),
         ("query_params", "QueryParams", section_schemas.query_params),
         ("headers", "Headers", section_schemas.headers),
@@ -148,7 +194,16 @@ def _build_operation_sections(
             )
         )
 
-    status_sections: list[tuple[str, str, dict[str, dict[str, Any]]]] = [
+
+def _append_status_sections(
+    *,
+    operation: OperationSpec,
+    section_schemas: SectionSchemas,
+    converter: SchemaConverter,
+    sections: list[SectionModel],
+    items: list[VerificationItem],
+) -> None:
+    status_sections: list[tuple[str, str, dict[str, MutableJSONObject]]] = [
         ("response", "Response", section_schemas.response_schemas),
         ("errors", "Errors", section_schemas.error_schemas),
     ]
@@ -163,10 +218,12 @@ def _build_operation_sections(
         sections.append(section)
 
         ordered_schemas = [schemas_by_status[key] for key in sorted(schemas_by_status)]
+        merged_source_schema: MutableJSONObject
         if len(ordered_schemas) == 1:
             merged_source_schema = ordered_schemas[0]
         else:
-            merged_source_schema = {"oneOf": ordered_schemas}
+            one_of_values: list[JSONValue] = list(ordered_schemas)
+            merged_source_schema = {"oneOf": one_of_values}
         items.append(
             VerificationItem(
                 endpoint_name=operation.endpoint_name,
@@ -182,8 +239,6 @@ def _build_operation_sections(
                 ),
             ),
         )
-
-    return sections, items
 
 
 __all__ = [

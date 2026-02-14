@@ -11,6 +11,7 @@ repos:
       - id: mypy
         additional_dependencies:
           - types-PyYAML
+          - types-jsonschema
   - repo: local
     hooks:
       - id: pylint

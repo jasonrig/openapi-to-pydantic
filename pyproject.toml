@@ -4,7 +4,14 @@ version = "0.1.0"
 description = "OpenAPI to endpoint-scoped Pydantic model generator"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "jsonschema>=4.26.0",
+    "pydantic>=2.12.5",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+openapi-to-pydantic-generator = "openapi_to_pydantic_generator.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.10.2,<0.11.0"]
@@ -19,6 +26,7 @@ dev = [
     "pytest>=9.0.2",
     "pyyaml>=6.0.3",
     "ruff>=0.15.1",
+    "types-jsonschema>=4.26.0.20260202",
     "types-pyyaml>=6.0.12.20250915",
 ]
 
@@ -35,3 +43,12 @@ strict = true
 
 [tool.pylint.main]
 py-version = "3.12"
+
+[tool.pylint.messages_control]
+disable = [
+    "line-too-long",
+    "too-many-branches",
+    "too-many-instance-attributes",
+    "too-many-locals",
+    "too-many-return-statements",
+]

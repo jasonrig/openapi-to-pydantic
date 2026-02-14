@@ -6,8 +6,24 @@ from pathlib import Path
 import subprocess
 import sys
 
-from .codegen_ast import render_section_module
-from .model_types import SectionModel
+from .codegen_ast import (
+    render_endpoint_init_module,
+    render_models_init_module,
+    render_section_module,
+)
+from .model_types import EndpointManifest, SectionModel
+
+_GENERATED_RUFF_IGNORE_CODES: tuple[str, ...] = (
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D104",
+    "D205",
+    "D301",
+    "D415",
+    "E501",
+)
 
 
 class WriteError(RuntimeError):
@@ -28,7 +44,7 @@ def create_output_layout(output_dir: Path) -> Path:
 
     models_dir = output_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=False)
-    _write_file(models_dir / "__init__.py", "")
+    _write_file(models_dir / "__init__.py", '"""Generated models package."""\n')
     return models_dir
 
 
@@ -52,13 +68,39 @@ def write_operation_sections(
     endpoint_dir.mkdir(parents=True, exist_ok=True)
     method_dir.mkdir(parents=True, exist_ok=True)
 
-    _write_file(endpoint_dir / "__init__.py", "")
-    _write_file(method_dir / "__init__.py", "")
+    _write_file(
+        method_dir / "__init__.py",
+        (f'"""Generated sections for endpoint "{endpoint_name}" method "{method.upper()}"."""\n'),
+    )
 
     for section in sections:
         path = method_dir / f"{section.section_name}.py"
         source = render_section_module(section)
         _write_file(path, source)
+
+
+def write_endpoint_manifest(*, models_dir: Path, manifest: EndpointManifest) -> None:
+    """Write endpoint package ``__init__.py`` with manifest metadata.
+
+    Args:
+        models_dir (Path): Root generated models directory.
+        manifest (EndpointManifest): Endpoint manifest payload.
+    """
+    endpoint_dir = models_dir / manifest.endpoint_name
+    endpoint_dir.mkdir(parents=True, exist_ok=True)
+    source = render_endpoint_init_module(manifest)
+    _write_file(endpoint_dir / "__init__.py", source)
+
+
+def write_models_index(*, models_dir: Path, endpoint_manifests: list[EndpointManifest]) -> None:
+    """Write root models package ``__init__.py`` with endpoint index documentation.
+
+    Args:
+        models_dir (Path): Root generated models directory.
+        endpoint_manifests (list[EndpointManifest]): Endpoint documentation payloads.
+    """
+    source = render_models_init_module(endpoint_manifests)
+    _write_file(models_dir / "__init__.py", source)
 
 
 def format_generated_tree(*, models_dir: Path) -> None:
@@ -67,13 +109,14 @@ def format_generated_tree(*, models_dir: Path) -> None:
     Args:
         models_dir (Path): Generated models directory to format.
     """
+    _run_ruff(models_dir=models_dir, args=("format", str(models_dir)))
     _run_ruff(
         models_dir=models_dir,
         args=(
             "check",
             "--fix",
             "--ignore",
-            "D100,D101,D102,D103",
+            ",".join(_GENERATED_RUFF_IGNORE_CODES),
             str(models_dir),
         ),
     )

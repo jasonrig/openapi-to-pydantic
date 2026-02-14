@@ -52,6 +52,35 @@ class SectionModel:
 
 
 @dataclass(frozen=True)
+class SectionManifestEntry:
+    """Manifest entry describing model usage for one generated section module."""
+
+    section_name: str
+    root_class_name: str
+    model_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class OperationManifestEntry:
+    """Manifest entry describing generated section models for one HTTP method."""
+
+    method: str
+    path: str
+    summary: Optional[str]
+    description: Optional[str]
+    sections: tuple[SectionManifestEntry, ...]
+
+
+@dataclass(frozen=True)
+class EndpointManifest:
+    """Documentation payload for one generated endpoint package."""
+
+    endpoint_name: str
+    paths: tuple[str, ...]
+    operations: tuple[OperationManifestEntry, ...]
+
+
+@dataclass(frozen=True)
 class VerificationItem:
     """A model schema comparison entry."""
 

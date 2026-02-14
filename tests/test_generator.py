@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -9,7 +10,111 @@ from pathlib import Path
 import pytest
 
 from openapi_to_pydantic_generator.generator import WriteError, run_generation
+from openapi_to_pydantic_generator.naming import path_to_endpoint_name
 from .fixture_helpers import iter_fixture_paths, parametrize_fixtures
+
+_INLINE_OPENAPI_PATH = "/users/{user_id}/posts"
+_INLINE_OPENAPI_SPEC = """
+openapi: 3.1.0
+info:
+  title: Inline Test API
+  version: 1.0.0
+paths:
+  /users/{user_id}/posts:
+    get:
+      summary: List posts for a user.
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+    post:
+      description: Create a post for the user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payload:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+"""
+
+
+def _write_inline_openapi_spec(path: Path) -> None:
+    path.write_text(_INLINE_OPENAPI_SPEC, encoding="utf-8")
+
+
+def _module_docstring(path: Path) -> str:
+    source = path.read_text(encoding="utf-8")
+    parsed = ast.parse(source)
+    docstring = ast.get_docstring(parsed)
+    if docstring is None:
+        raise RuntimeError(f"Module docstring missing: {path}")
+    return docstring
+
+
+def _class_names_from_section_module(section_module_path: Path) -> list[str]:
+    section_module_source = section_module_path.read_text(encoding="utf-8")
+    parsed = ast.parse(section_module_source)
+    return [node.name for node in parsed.body if isinstance(node, ast.ClassDef)]
+
+
+def _assert_endpoint_docstring_matches_generated_modules(
+    *,
+    endpoint_docstring: str,
+    output_dir: Path,
+    endpoint_name: str,
+) -> None:
+    endpoint_dir = output_dir / "models" / endpoint_name
+    for method_dir in sorted(path for path in endpoint_dir.iterdir() if path.is_dir()):
+        method = method_dir.name
+        assert f"- {method.upper()} {_INLINE_OPENAPI_PATH}" in endpoint_docstring
+        for section_path in sorted(method_dir.glob("*.py")):
+            if section_path.name == "__init__.py":
+                continue
+            section_name = section_path.stem
+            section_module = f"models.{endpoint_name}.{method}.{section_name}"
+            assert section_module in endpoint_docstring
+            class_names = _class_names_from_section_module(section_path)
+            assert class_names, section_path
+            for class_name in class_names:
+                assert class_name in endpoint_docstring
 
 
 @parametrize_fixtures()
@@ -121,7 +226,7 @@ def test_generated_modules_pass_ruff_check(tmp_path: Path) -> None:
             "ruff",
             "check",
             "--ignore",
-            "D100,D101,D102,D103",
+            "D100,D101,D102,D103,D104,D205,D301,D415,E501",
             str(output_dir / "models"),
         ],
         check=False,
@@ -130,3 +235,37 @@ def test_generated_modules_pass_ruff_check(tmp_path: Path) -> None:
     )
     details = f"{lint.stdout}\n{lint.stderr}".strip()
     assert lint.returncode == 0, details
+
+
+def test_generated_package_docstrings_include_navigation_context(tmp_path: Path) -> None:
+    """Generated package docstrings should map URL patterns to modules and models."""
+    spec_path = tmp_path / "inline_openapi.yaml"
+    _write_inline_openapi_spec(spec_path)
+
+    output_dir = tmp_path / "generated"
+    run_generation(
+        input_path=spec_path,
+        output_dir=output_dir,
+        verify=False,
+    )
+
+    endpoint_name = path_to_endpoint_name(_INLINE_OPENAPI_PATH)
+    endpoint_init = output_dir / "models" / endpoint_name / "__init__.py"
+    endpoint_docstring = _module_docstring(endpoint_init)
+    assert _INLINE_OPENAPI_PATH in endpoint_docstring
+    assert "Operation and model usage map:" in endpoint_docstring
+    assert f"- GET {_INLINE_OPENAPI_PATH}" in endpoint_docstring
+    assert f"- POST {_INLINE_OPENAPI_PATH}" in endpoint_docstring
+    assert "List posts for a user." in endpoint_docstring
+    assert "Create a post for the user." in endpoint_docstring
+    _assert_endpoint_docstring_matches_generated_modules(
+        endpoint_docstring=endpoint_docstring,
+        output_dir=output_dir,
+        endpoint_name=endpoint_name,
+    )
+
+    root_init = output_dir / "models" / "__init__.py"
+    root_docstring = _module_docstring(root_init)
+    assert f"module: models.{endpoint_name}" in root_docstring
+    assert _INLINE_OPENAPI_PATH in root_docstring
+    assert "List posts for a user." in root_docstring

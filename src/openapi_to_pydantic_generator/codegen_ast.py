@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Iterable
+import textwrap
 from typing import Optional
 
 from .json_types import JSONValue
-from .model_types import FieldDef, ModelDef, SectionModel
+from .model_types import EndpointManifest, FieldDef, ModelDef, SectionModel
 
 _TYPING_IMPORT_ORDER: tuple[str, ...] = (
     "Annotated",
@@ -41,6 +42,38 @@ def render_section_module(section: SectionModel) -> str:
     for model in section.models:
         body.append(_model_to_ast(model))
 
+    module = ast.Module(body=body, type_ignores=[])
+    ast.fix_missing_locations(module)
+    return ast.unparse(module) + "\n"
+
+
+def render_endpoint_init_module(manifest: EndpointManifest) -> str:
+    """Render endpoint package ``__init__.py`` with manifest metadata.
+
+    Args:
+        manifest (EndpointManifest): Endpoint manifest payload.
+
+    Returns:
+        str: Generated Python source for endpoint package metadata.
+    """
+    docstring = _endpoint_manifest_docstring(manifest)
+    body: list[ast.stmt] = [ast.Expr(value=ast.Constant(value=docstring))]
+    module = ast.Module(body=body, type_ignores=[])
+    ast.fix_missing_locations(module)
+    return ast.unparse(module) + "\n"
+
+
+def render_models_init_module(endpoint_manifests: list[EndpointManifest]) -> str:
+    """Render root models package ``__init__.py`` documentation module.
+
+    Args:
+        endpoint_manifests (list[EndpointManifest]): Endpoint documentation payloads.
+
+    Returns:
+        str: Generated Python source for root models package documentation.
+    """
+    docstring = _models_index_docstring(endpoint_manifests)
+    body: list[ast.stmt] = [ast.Expr(value=ast.Constant(value=docstring))]
     module = ast.Module(body=body, type_ignores=[])
     ast.fix_missing_locations(module)
     return ast.unparse(module) + "\n"
@@ -247,3 +280,66 @@ def _collect_pydantic_imports(
         requested.add("ConfigDict")
 
     return [name for name in _PYDANTIC_IMPORT_ORDER if name in requested]
+
+
+def _endpoint_manifest_docstring(manifest: EndpointManifest) -> str:
+    lines: list[str] = [
+        "Generated endpoint package documentation for coding-agent navigation.",
+        "",
+        f"Endpoint module: models.{manifest.endpoint_name}",
+        "Original OpenAPI path(s):",
+    ]
+    for path in manifest.paths:
+        lines.append(f"- {path}")
+    lines.append("")
+    lines.append("Operation and model usage map:")
+    for operation in manifest.operations:
+        lines.append(f"- {operation.method.upper()} {operation.path}")
+        description = operation.summary or operation.description
+        if description:
+            lines.append(f"  summary: {description}")
+        if not operation.sections:
+            lines.append("  - no generated sections")
+            continue
+        for section in operation.sections:
+            section_module = (
+                f"models.{manifest.endpoint_name}.{operation.method}.{section.section_name}"
+            )
+            lines.append(f"  - section module: {section_module}")
+            lines.append(f"    root model: {section.root_class_name}")
+            lines.append("    models:")
+            for model_name in section.model_names:
+                lines.append(f"    - {model_name}")
+    return "\n".join(lines)
+
+
+def _models_index_docstring(endpoint_manifests: list[EndpointManifest]) -> str:
+    lines: list[str] = [
+        "Generated models package index for coding-agent navigation.",
+        "",
+        "Each endpoint package maps OpenAPI URL patterns to Python modules.",
+        "Use this index to locate endpoint, method, and section modules quickly.",
+        "",
+        "Endpoint index:",
+    ]
+    for manifest in endpoint_manifests:
+        lines.append(f"- module: models.{manifest.endpoint_name}")
+        lines.append("  paths:")
+        for path in manifest.paths:
+            lines.append(f"  - {path}")
+        lines.append("  operations:")
+        for operation in manifest.operations:
+            summary = operation.summary or operation.description
+            if summary:
+                wrapped_summary = _wrap_summary(summary)
+                lines.append(f"  - {operation.method.upper()} {operation.path}")
+                for summary_line in wrapped_summary:
+                    lines.append(f"    summary: {summary_line}")
+            else:
+                lines.append(f"  - {operation.method.upper()} {operation.path}")
+    return "\n".join(lines)
+
+
+def _wrap_summary(text: str) -> list[str]:
+    wrapped = textwrap.wrap(text, width=84)
+    return wrapped if wrapped else [text]

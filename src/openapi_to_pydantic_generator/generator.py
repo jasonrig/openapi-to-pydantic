@@ -13,7 +13,15 @@ from .loader import (
     get_openapi_version,
     load_openapi_document,
 )
-from .model_types import GenerationResult, OperationSpec, SectionModel, VerificationItem
+from .model_types import (
+    EndpointManifest,
+    GenerationResult,
+    OperationManifestEntry,
+    OperationSpec,
+    SectionManifestEntry,
+    SectionModel,
+    VerificationItem,
+)
 from .naming import resolve_operations
 from .resolver import Resolver, SectionSchemas
 from .schema_to_models import SchemaConverter
@@ -22,6 +30,8 @@ from .writer import (
     WriteError,
     create_output_layout,
     format_generated_tree,
+    write_endpoint_manifest,
+    write_models_index,
     write_operation_sections,
 )
 
@@ -55,11 +65,20 @@ def run_generation(
         output_dir=output_dir,
     )
 
-    verification_items = _generate_operations(
+    verification_items, endpoint_manifests = _generate_operations(
         operations=operations,
         resolver=resolver,
         converter=converter,
         models_dir=models_dir,
+    )
+    for endpoint_manifest in endpoint_manifests:
+        write_endpoint_manifest(
+            models_dir=models_dir,
+            manifest=endpoint_manifest,
+        )
+    write_models_index(
+        models_dir=models_dir,
+        endpoint_manifests=endpoint_manifests,
     )
 
     format_generated_tree(models_dir=models_dir)
@@ -114,8 +133,10 @@ def _generate_operations(
     resolver: Resolver,
     converter: SchemaConverter,
     models_dir: Path,
-) -> list[VerificationItem]:
+) -> tuple[list[VerificationItem], list[EndpointManifest]]:
     verification_items: list[VerificationItem] = []
+    endpoint_paths_by_name: dict[str, list[str]] = {}
+    endpoint_operations_by_name: dict[str, list[OperationManifestEntry]] = {}
     for operation in operations:
         section_schemas = resolver.build_section_schemas(operation)
         sections, items = _build_operation_sections(
@@ -132,7 +153,22 @@ def _generate_operations(
             sections=sections,
         )
         verification_items.extend(items)
-    return verification_items
+        _record_endpoint_manifest(
+            operation=operation,
+            sections=sections,
+            endpoint_paths_by_name=endpoint_paths_by_name,
+            endpoint_operations_by_name=endpoint_operations_by_name,
+        )
+    endpoint_manifests = [
+        EndpointManifest(
+            endpoint_name=endpoint_name,
+            paths=tuple(endpoint_paths_by_name.get(endpoint_name, [])),
+            operations=tuple(operation_entries),
+        )
+        for endpoint_name, operation_entries in endpoint_operations_by_name.items()
+    ]
+    endpoint_manifests.sort(key=lambda item: item.endpoint_name)
+    return verification_items, endpoint_manifests
 
 
 def _build_operation_sections(
@@ -248,6 +284,44 @@ def _append_status_sections(
                 ),
             ),
         )
+
+
+def _record_endpoint_manifest(
+    *,
+    operation: OperationSpec,
+    sections: list[SectionModel],
+    endpoint_paths_by_name: dict[str, list[str]],
+    endpoint_operations_by_name: dict[str, list[OperationManifestEntry]],
+) -> None:
+    paths = endpoint_paths_by_name.setdefault(operation.endpoint_name, [])
+    if operation.path not in paths:
+        paths.append(operation.path)
+
+    section_entries = tuple(
+        SectionManifestEntry(
+            section_name=section.section_name,
+            root_class_name=section.root_class_name,
+            model_names=tuple(model.name for model in section.models),
+        )
+        for section in sections
+    )
+    endpoint_operations_by_name.setdefault(operation.endpoint_name, []).append(
+        OperationManifestEntry(
+            method=operation.method,
+            path=operation.path,
+            summary=_string_or_none(operation.operation.get("summary")),
+            description=_string_or_none(operation.operation.get("description")),
+            sections=section_entries,
+        ),
+    )
+
+
+def _string_or_none(value: JSONValue) -> Optional[str]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            return stripped
+    return None
 
 
 __all__ = [

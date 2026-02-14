@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 from .codegen_ast import render_section_module
 from .model_types import SectionModel
@@ -43,6 +45,23 @@ def write_operation_sections(
         path = method_dir / f"{section.section_name}.py"
         source = render_section_module(section)
         _write_file(path, source)
+
+
+def format_generated_tree(*, models_dir: Path) -> None:
+    """Run ruff formatter against generated model files."""
+    command = [sys.executable, "-m", "ruff", "format", str(models_dir)]
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise WriteError(f"Failed to execute ruff formatter for {models_dir}: {exc}") from exc
+    except subprocess.CalledProcessError as exc:
+        error_text = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+        raise WriteError(f"ruff format failed for {models_dir}: {error_text}") from exc
 
 
 def _write_file(path: Path, content: str) -> None:

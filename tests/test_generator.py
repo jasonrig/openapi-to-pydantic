@@ -55,6 +55,31 @@ def test_output_directory_must_not_exist(tmp_path: Path) -> None:
         )
 
 
+def test_generation_invokes_ruff_formatting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Generation should run ruff formatting on emitted model files."""
+    fixture_path = iter_fixture_paths()[0]
+    output_dir = tmp_path / "formatted"
+    captured: dict[str, Path] = {}
+
+    def _fake_format(*, models_dir: Path) -> None:
+        captured["models_dir"] = models_dir
+
+    monkeypatch.setattr(
+        "openapi_to_pydantic_generator.generator.format_generated_tree",
+        _fake_format,
+    )
+
+    run_generation(
+        input_path=fixture_path,
+        output_dir=output_dir,
+        verify=False,
+    )
+    assert "models_dir" in captured, f"ruff formatting hook was not called: {captured!r}"
+    assert captured["models_dir"] == output_dir / "models"
+
+
 def test_cli_help_screen() -> None:
     """Running the CLI help should succeed and print usage information."""
     result = subprocess.run(

@@ -42,10 +42,52 @@ _BUILTIN_IDENTIFIER_RESERVED = {
     "type",
 }
 _JSON_VALUE_ANNOTATION = (
+    "Optional[Union["
+    "str, int, float, bool, "
+    "list[Optional[Union[str, int, float, bool]]], "
+    "dict[str, Optional[Union[str, int, float, bool]]]"
+    "]]"
+)
+_PYDANTIC_EXTRA_VALUE_ANNOTATION = (
     "str | int | float | bool | None | "
     "list[str | int | float | bool | None] | "
     "dict[str, str | int | float | bool | None]"
 )
+_FIELD_STRUCTURAL_KEYS = {
+    "$ref",
+    "type",
+    "properties",
+    "required",
+    "items",
+    "additionalProperties",
+    "allOf",
+    "anyOf",
+    "oneOf",
+    "discriminator",
+    "nullable",
+    "title",
+    "default",
+    "enum",
+    "const",
+}
+_MODEL_STRUCTURAL_KEYS = {
+    "$ref",
+    "type",
+    "properties",
+    "required",
+    "items",
+    "additionalProperties",
+    "allOf",
+    "anyOf",
+    "oneOf",
+    "discriminator",
+    "nullable",
+    "title",
+    "description",
+    "default",
+    "enum",
+    "const",
+}
 
 
 @dataclass
@@ -235,7 +277,9 @@ class SchemaConverter:
         extra_behavior: str | None
         additional_properties_annotation: str | None = None
         if isinstance(additional_properties, dict):
-            additional_properties_annotation = f"dict[str, {_JSON_VALUE_ANNOTATION}]"
+            additional_properties_annotation = f"dict[str, {_PYDANTIC_EXTRA_VALUE_ANNOTATION}]"
+        elif additional_properties is True or additional_properties is None:
+            additional_properties_annotation = f"dict[str, {_PYDANTIC_EXTRA_VALUE_ANNOTATION}]"
 
         if additional_properties is False:
             extra_behavior = "forbid"
@@ -243,6 +287,10 @@ class SchemaConverter:
             extra_behavior = "allow"
         else:
             extra_behavior = "allow"
+
+        schema_extra = self._schema_extra(merged)
+        if isinstance(additional_properties, dict):
+            schema_extra["additionalProperties"] = deep_copy(additional_properties)
 
         context.models.append(
             ModelDef(
@@ -253,7 +301,7 @@ class SchemaConverter:
                 docstring=self._string_or_none(merged.get("description")),
                 title=self._string_or_none(merged.get("title")),
                 extra_behavior=extra_behavior,
-                schema_extra=self._schema_extra(merged),
+                schema_extra=schema_extra,
                 additional_properties_annotation=additional_properties_annotation,
             )
         )
@@ -293,6 +341,12 @@ class SchemaConverter:
             if key in metadata:
                 extra[key] = metadata.pop(key)
 
+        passthrough = self._passthrough_schema_extra(
+            schema=schema,
+            structural_keys=_FIELD_STRUCTURAL_KEYS,
+        )
+        extra.update(passthrough)
+
         if extra:
             metadata["json_schema_extra"] = extra
         return metadata
@@ -306,10 +360,34 @@ class SchemaConverter:
             "contentEncoding",
             "example",
             "examples",
+            "readOnly",
+            "writeOnly",
+            "deprecated",
         ):
             if key in schema:
                 extra[key] = deep_copy(schema[key])
+
+        passthrough = self._passthrough_schema_extra(
+            schema=schema,
+            structural_keys=_MODEL_STRUCTURAL_KEYS,
+        )
+        extra.update(passthrough)
         return extra
+
+    @staticmethod
+    def _passthrough_schema_extra(
+        *,
+        schema: dict[str, Any],
+        structural_keys: set[str],
+    ) -> dict[str, Any]:
+        passthrough: dict[str, Any] = {}
+        for key, value in schema.items():
+            if key in _DOC_FIELDS:
+                continue
+            if key in structural_keys:
+                continue
+            passthrough[key] = deep_copy(value)
+        return passthrough
 
     def _schema_to_annotation(
         self,

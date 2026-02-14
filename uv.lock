@@ -462,6 +462,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "ruff" },
 ]
 
 [package.dev-dependencies]
@@ -472,7 +473,6 @@ dev = [
     { name = "pylint" },
     { name = "pytest" },
     { name = "pyyaml" },
-    { name = "ruff" },
     { name = "types-jsonschema" },
     { name = "types-pyyaml" },
 ]
@@ -482,6 +482,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "ruff", specifier = ">=0.15.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -492,7 +493,6 @@ dev = [
     { name = "pylint", specifier = ">=4.0.4" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "ruff", specifier = ">=0.15.1" },
     { name = "types-jsonschema", specifier = ">=4.26.0.20260202" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
 ]

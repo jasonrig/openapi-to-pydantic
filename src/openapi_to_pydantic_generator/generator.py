@@ -17,7 +17,12 @@ from .naming import resolve_operations
 from .resolver import Resolver, SectionSchemas
 from .schema_to_models import SchemaConverter
 from .verify import VerificationReport, verify_models
-from .writer import WriteError, create_output_layout, write_operation_sections
+from .writer import (
+    WriteError,
+    create_output_layout,
+    format_generated_tree,
+    write_operation_sections,
+)
 
 
 @dataclass(frozen=True)
@@ -66,6 +71,8 @@ def run_generation(
                 sections=sections,
             )
             verification_items.extend(items)
+
+    format_generated_tree(models_dir=models_dir)
 
     result = GenerationResult(
         output_dir=str(output_dir),

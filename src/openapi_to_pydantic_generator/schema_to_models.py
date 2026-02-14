@@ -42,6 +42,7 @@ _BUILTIN_IDENTIFIER_RESERVED = {
     "tuple",
     "type",
 }
+_RUFF_AMBIGUOUS_IDENTIFIER_NAMES = {"l", "o", "i"}
 _JSON_VALUE_ANNOTATION = (
     "Optional[Union["
     "str, int, float, bool, "
@@ -398,6 +399,7 @@ class SchemaConverter:
             candidate in _BASEMODEL_RESERVED
             or candidate in _ROOTMODEL_RESERVED
             or candidate in _BUILTIN_IDENTIFIER_RESERVED
+            or candidate in _RUFF_AMBIGUOUS_IDENTIFIER_NAMES
         ):
             candidate = f"{candidate}_field"
         if candidate not in used_names:

@@ -102,3 +102,29 @@ def test_cli_help_screen() -> None:
     )
     assert result.returncode == 0
     assert "usage:" in result.stdout.lower()
+
+
+def test_generated_modules_pass_ruff_check(tmp_path: Path) -> None:
+    """Generated modules should pass all ruff checks."""
+    fixture_path = iter_fixture_paths()[0]
+    output_dir = tmp_path / "no_unused_imports"
+    run_generation(
+        input_path=fixture_path,
+        output_dir=output_dir,
+        verify=False,
+    )
+
+    lint = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            str(output_dir / "models"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    details = f"{lint.stdout}\n{lint.stderr}".strip()
+    assert lint.returncode == 0, details

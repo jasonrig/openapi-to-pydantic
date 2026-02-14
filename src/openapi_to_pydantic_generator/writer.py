@@ -48,8 +48,14 @@ def write_operation_sections(
 
 
 def format_generated_tree(*, models_dir: Path) -> None:
-    """Run ruff formatter against generated model files."""
-    command = [sys.executable, "-m", "ruff", "format", str(models_dir)]
+    """Run ruff auto-fixes and formatter against generated model files."""
+    _run_ruff(models_dir=models_dir, args=("check", "--fix", str(models_dir)))
+    _run_ruff(models_dir=models_dir, args=("format", str(models_dir)))
+
+
+def _run_ruff(*, models_dir: Path, args: tuple[str, ...]) -> None:
+    command = [sys.executable, "-m", "ruff", *args]
+    command_desc = " ".join(args)
     try:
         subprocess.run(
             command,
@@ -58,10 +64,10 @@ def format_generated_tree(*, models_dir: Path) -> None:
             text=True,
         )
     except OSError as exc:
-        raise WriteError(f"Failed to execute ruff formatter for {models_dir}: {exc}") from exc
+        raise WriteError(f"Failed to execute ruff {command_desc} for {models_dir}: {exc}") from exc
     except subprocess.CalledProcessError as exc:
         error_text = exc.stderr.strip() or exc.stdout.strip() or str(exc)
-        raise WriteError(f"ruff format failed for {models_dir}: {error_text}") from exc
+        raise WriteError(f"ruff {command_desc} failed for {models_dir}: {error_text}") from exc
 
 
 def _write_file(path: Path, content: str) -> None:

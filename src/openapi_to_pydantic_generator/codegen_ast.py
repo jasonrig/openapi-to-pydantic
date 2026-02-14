@@ -3,37 +3,33 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from typing import Any
 
 from .model_types import FieldDef, ModelDef, SectionModel
+
+_TYPING_IMPORT_ORDER: tuple[str, ...] = (
+    "Any",
+    "Annotated",
+    "Literal",
+    "Optional",
+    "Union",
+)
+
+_PYDANTIC_IMPORT_ORDER: tuple[str, ...] = (
+    "BaseModel",
+    "ConfigDict",
+    "Field",
+    "RootModel",
+)
 
 
 def render_section_module(section: SectionModel) -> str:
     """Render section models as Python source code using AST."""
     body: list[ast.stmt] = [
         ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0),
-        ast.ImportFrom(
-            module="typing",
-            names=[
-                ast.alias(name="Any"),
-                ast.alias(name="Annotated"),
-                ast.alias(name="Literal"),
-                ast.alias(name="Optional"),
-                ast.alias(name="Union"),
-            ],
-            level=0,
-        ),
-        ast.ImportFrom(
-            module="pydantic",
-            names=[
-                ast.alias(name="BaseModel"),
-                ast.alias(name="ConfigDict"),
-                ast.alias(name="Field"),
-                ast.alias(name="RootModel"),
-            ],
-            level=0,
-        ),
     ]
+    body.extend(_build_imports(section))
 
     for model in section.models:
         body.append(_model_to_ast(model))
@@ -163,3 +159,84 @@ def _expr(code: str) -> ast.expr:
 def _value_expr(value: Any) -> ast.expr:
     parsed = ast.parse(repr(value), mode="eval")
     return parsed.body
+
+
+def _build_imports(section: SectionModel) -> list[ast.stmt]:
+    used_annotation_names = _collect_used_annotation_names(section)
+
+    typing_imports = [name for name in _TYPING_IMPORT_ORDER if name in used_annotation_names]
+    pydantic_imports = _collect_pydantic_imports(
+        models=section.models,
+        used_annotation_names=used_annotation_names,
+    )
+
+    imports: list[ast.stmt] = []
+    if typing_imports:
+        imports.append(
+            ast.ImportFrom(
+                module="typing",
+                names=[ast.alias(name=name) for name in typing_imports],
+                level=0,
+            )
+        )
+    if pydantic_imports:
+        imports.append(
+            ast.ImportFrom(
+                module="pydantic",
+                names=[ast.alias(name=name) for name in pydantic_imports],
+                level=0,
+            )
+        )
+    return imports
+
+
+def _collect_used_annotation_names(section: SectionModel) -> set[str]:
+    names: set[str] = set()
+    for annotation in _iter_annotation_exprs(section.models):
+        names.update(_extract_loaded_names(annotation))
+    return names
+
+
+def _iter_annotation_exprs(models: tuple[ModelDef, ...]) -> Iterable[str]:
+    for model in models:
+        if model.root_annotation is not None:
+            yield model.root_annotation
+        if model.config.additional_properties_annotation is not None:
+            yield model.config.additional_properties_annotation
+        for field in model.fields:
+            yield field.annotation
+
+
+def _extract_loaded_names(expr_code: str) -> set[str]:
+    parsed = ast.parse(expr_code, mode="eval")
+    loaded_names: set[str] = set()
+    for node in ast.walk(parsed):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            loaded_names.add(node.id)
+    return loaded_names
+
+
+def _collect_pydantic_imports(
+    *,
+    models: tuple[ModelDef, ...],
+    used_annotation_names: set[str],
+) -> list[str]:
+    needs_field = False
+    needs_config = False
+    for model in models:
+        if model.fields or model.config.additional_properties_annotation is not None:
+            needs_field = True
+        if model.config.title or model.config.extra_behavior or model.config.schema_extra:
+            needs_config = True
+
+    requested: set[str] = set()
+    if any(not model.is_root for model in models):
+        requested.add("BaseModel")
+    if any(model.is_root for model in models):
+        requested.add("RootModel")
+    if needs_field or "Field" in used_annotation_names:
+        requested.add("Field")
+    if needs_config:
+        requested.add("ConfigDict")
+
+    return [name for name in _PYDANTIC_IMPORT_ORDER if name in requested]

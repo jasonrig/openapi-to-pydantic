@@ -24,6 +24,7 @@ dev = [
     "mypy>=1.19.1",
     "openapi-python-client>=0.28.2",
     "pre-commit>=4.5.1",
+    "pydoclint>=0.8.3",
     "pylint>=4.0.4",
     "pytest>=9.0.2",
     "pyyaml>=6.0.3",
@@ -40,7 +41,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 extend-select = ["D", "F", "E", "W"]
-ignore = ["D203", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.mypy]
 python_version = "3.12"

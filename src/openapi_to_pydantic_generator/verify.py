@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import itertools
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +12,7 @@ from jsonschema.validators import validator_for
 from pydantic import BaseModel
 
 from .json_types import JSONValue
+from .module_loading import load_module_from_path
 from .model_types import VerificationItem
 from .normalize import (
     Mismatch,
@@ -134,12 +134,7 @@ def _load_model_class(*, module_path: Path, class_name: str) -> type[BaseModel]:
         raise RuntimeError(f"Generated module not found: {module_path}")
 
     module_name = f"generated_{abs(hash(str(module_path)))}_{next(_COUNTER)}"
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Unable to import generated module: {module_path}")
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_module_from_path(module_name=module_name, module_path=module_path)
     _rebuild_module_models(module=module)
 
     value = getattr(module, class_name, None)

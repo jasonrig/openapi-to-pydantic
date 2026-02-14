@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import itertools
 import tempfile
 from pathlib import Path
@@ -12,6 +11,7 @@ from pydantic import BaseModel, RootModel
 
 from openapi_to_pydantic_generator.codegen_ast import render_section_module
 from openapi_to_pydantic_generator.json_types import JSONObject, JSONValue, MutableJSONObject
+from openapi_to_pydantic_generator.module_loading import load_module_from_path
 from openapi_to_pydantic_generator.schema_to_models import SchemaConverter
 
 
@@ -27,11 +27,7 @@ def _build_model_schema(*, schema: JSONObject, section_name: str = "body") -> Mu
         module_path = Path(temp_dir) / "generated_section.py"
         module_path.write_text(source, encoding="utf-8")
         module_name = f"generated_test_{next(_COUNTER)}"
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Unable to import generated test module from {module_path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module_from_path(module_name=module_name, module_path=module_path)
 
         value = getattr(module, section.root_class_name, None)
         if not _is_base_model_type(value):
@@ -59,11 +55,7 @@ def _build_model_class(*, schema: JSONObject, section_name: str = "body") -> typ
         module_path = Path(temp_dir) / "generated_section.py"
         module_path.write_text(source, encoding="utf-8")
         module_name = f"generated_test_{next(_COUNTER)}"
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Unable to import generated test module from {module_path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module_from_path(module_name=module_name, module_path=module_path)
 
         value = getattr(module, section.root_class_name, None)
         if not _is_base_model_type(value):

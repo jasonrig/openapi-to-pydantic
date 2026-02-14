@@ -164,6 +164,7 @@ def _normalize_structural(node: JSONValue, *, parent_key: Optional[str] = None) 
         _normalize_malformed_array_schema(normalized_dict)
         _normalize_required_properties(normalized_dict)
         _normalize_enum_type_conflict(normalized_dict)
+        _normalize_permissive_additional_properties(normalized_dict)
         _drop_empty_all_of(normalized_dict)
         _drop_any_of_option_descriptions(normalized_dict)
 
@@ -367,6 +368,43 @@ def _normalize_enum_type_conflict(node: MutableJSONObject) -> None:
 
     if inferred_type is not None:
         node["type"] = inferred_type
+
+
+def _normalize_permissive_additional_properties(node: MutableJSONObject) -> None:
+    additional_properties = node.get("additionalProperties")
+    if not isinstance(additional_properties, dict):
+        return
+    if _is_any_json_value_schema(additional_properties):
+        node["additionalProperties"] = True
+
+
+def _is_any_json_value_schema(schema: JSONObject) -> bool:
+    any_of = schema.get("anyOf")
+    if not isinstance(any_of, list) or not any_of:
+        return False
+
+    primitive_types: set[str] = set()
+    has_object = False
+    has_array = False
+    for option in any_of:
+        if not isinstance(option, dict):
+            return False
+        option_type = option.get("type")
+        if option_type == "object":
+            if "additionalProperties" in option:
+                has_object = True
+            continue
+        if option_type == "array":
+            if "items" in option:
+                has_array = True
+            continue
+        if isinstance(option_type, str):
+            primitive_types.add(option_type)
+            continue
+        return False
+
+    required_primitives = {"string", "number", "integer", "boolean", "null"}
+    return has_object and has_array and required_primitives.issubset(primitive_types)
 
 
 def _list_subset_mismatch(

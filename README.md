@@ -166,6 +166,7 @@ Run quality gates:
 uv run ruff check .
 uv run ruff format .
 uv run mypy src tests
+uv run pydoclint --style=google --check-return-types=False --check-arg-order=True --ignore-private-args=False --should-document-star-arguments=True --allow-init-docstring=True --skip-checking-short-docstrings=False --skip-checking-raises=True --check-class-attributes=False src
 uv run pylint src tests
 uv run pytest -q
 ```
@@ -175,6 +176,23 @@ Run all pre-commit hooks manually:
 ```bash
 uv run pre-commit run --all-files
 ```
+
+### Docstring Enforcement
+
+The project enforces Google-style docstrings for source files under `src/` through `pydoclint` in pre-commit.
+
+Current enforced behavior:
+
+- Function and method arguments must be documented (`DOC101`/`DOC103`).
+- Argument order in docstrings must match function signatures.
+- Private arguments and `*args`/`**kwargs` must be documented when present.
+- Short one-line docstrings are still checked (not skipped).
+
+Current non-goals in this gate:
+
+- Return type section matching is not enforced by `pydoclint` (`--check-return-types=False`).
+- Raises sections are not enforced by `pydoclint` (`--skip-checking-raises=True`).
+- Class attribute docstring checks are disabled (`--check-class-attributes=False`).
 
 ## Fixture-Driven Tests
 

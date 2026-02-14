@@ -47,6 +47,9 @@
 - Keep documentation accurate and up to date with behavior.
 - Document non-obvious decisions or tradeoffs.
 - Avoid documenting implementation details that are likely to change.
+- Public module-level functions, classes, and public class methods in `src/` must use Google-style docstrings.
+- Docstrings must include argument documentation that matches signature names and order.
+- Do not rely on short single-line docstrings to bypass argument documentation checks.
 
 ## Git and Change Management
 - Keep commits focused and logically grouped.

@@ -10,6 +10,7 @@ from pylint.lint import PyLinter
 
 
 _MESSAGE_PREFER_OPTIONAL = "prefer-optional"
+_MESSAGE_PREFER_UNION = "prefer-union"
 _MESSAGE_NO_OBJECT_ANNOTATION = "no-object-annotation"
 
 
@@ -28,6 +29,11 @@ class ProjectRulesChecker(BaseChecker):
             "Avoid object in type annotations; use a more specific type",
             _MESSAGE_NO_OBJECT_ANNOTATION,
             "Project style avoids object annotations when a better type exists.",
+        ),
+        "C9503": (
+            "Use Union[...] instead of | in type annotations",
+            _MESSAGE_PREFER_UNION,
+            "Project style requires Union[...] over | unions.",
         ),
     }
 
@@ -66,9 +72,19 @@ class ProjectRulesChecker(BaseChecker):
         if node.returns is not None:
             self._check_annotation(node.returns)
 
+    def visit_typealias(self, node: nodes.TypeAlias) -> None:
+        """Validate annotation style for type alias declarations.
+
+        Args:
+            node (nodes.TypeAlias): Type alias declaration node to inspect.
+        """
+        self._check_annotation(node.value)
+
     def _check_annotation(self, annotation: nodes.NodeNG) -> None:
         for optional_union in self._iter_optional_pipe_unions(annotation):
             self.add_message(_MESSAGE_PREFER_OPTIONAL, node=optional_union)
+        for union_pipe in self._iter_union_pipe_annotations(annotation):
+            self.add_message(_MESSAGE_PREFER_UNION, node=union_pipe)
         for object_name in self._iter_object_annotations(annotation):
             self.add_message(_MESSAGE_NO_OBJECT_ANNOTATION, node=object_name)
 
@@ -95,6 +111,23 @@ class ProjectRulesChecker(BaseChecker):
                 continue
             if _is_none_literal(candidate.left) or _is_none_literal(candidate.right):
                 yield candidate
+
+    @staticmethod
+    def _iter_union_pipe_annotations(annotation: nodes.NodeNG) -> Iterable[nodes.BinOp]:
+        for candidate in annotation.nodes_of_class(nodes.BinOp):
+            if candidate.op != "|":
+                continue
+            if _is_none_literal(candidate.left) or _is_none_literal(candidate.right):
+                continue
+
+            parent = candidate.parent
+            if (
+                isinstance(parent, nodes.BinOp)
+                and parent.op == "|"
+                and not (_is_none_literal(parent.left) or _is_none_literal(parent.right))
+            ):
+                continue
+            yield candidate
 
     @staticmethod
     def _iter_object_annotations(annotation: nodes.NodeNG) -> Iterable[nodes.Name]:

@@ -284,9 +284,9 @@ def _collect_pydantic_imports(
 
 def _endpoint_manifest_docstring(manifest: EndpointManifest) -> str:
     lines: list[str] = [
-        "Generated endpoint package documentation for coding-agent navigation.",
+        "Generated endpoint package documentation.",
         "",
-        f"Endpoint module: models.{manifest.endpoint_name}",
+        f"Endpoint module: .{manifest.endpoint_name}",
         "Original OpenAPI path(s):",
     ]
     for path in manifest.paths:
@@ -302,9 +302,7 @@ def _endpoint_manifest_docstring(manifest: EndpointManifest) -> str:
             lines.append("  - no generated sections")
             continue
         for section in operation.sections:
-            section_module = (
-                f"models.{manifest.endpoint_name}.{operation.method}.{section.section_name}"
-            )
+            section_module = f".{manifest.endpoint_name}.{operation.method}.{section.section_name}"
             lines.append(f"  - section module: {section_module}")
             lines.append(f"    root model: {section.root_class_name}")
             lines.append("    models:")
@@ -323,7 +321,7 @@ def _models_index_docstring(endpoint_manifests: list[EndpointManifest]) -> str:
         "Endpoint index:",
     ]
     for manifest in endpoint_manifests:
-        lines.append(f"- module: models.{manifest.endpoint_name}")
+        lines.append(f"- module: .{manifest.endpoint_name}")
         lines.append("  paths:")
         for path in manifest.paths:
             lines.append(f"  - {path}")

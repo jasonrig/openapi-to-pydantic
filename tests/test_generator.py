@@ -109,7 +109,7 @@ def _assert_endpoint_docstring_matches_generated_modules(
             if section_path.name == "__init__.py":
                 continue
             section_name = section_path.stem
-            section_module = f"models.{endpoint_name}.{method}.{section_name}"
+            section_module = f".{endpoint_name}.{method}.{section_name}"
             assert section_module in endpoint_docstring
             class_names = _class_names_from_section_module(section_path)
             assert class_names, section_path
@@ -266,6 +266,6 @@ def test_generated_package_docstrings_include_navigation_context(tmp_path: Path)
 
     root_init = output_dir / "models" / "__init__.py"
     root_docstring = _module_docstring(root_init)
-    assert f"module: models.{endpoint_name}" in root_docstring
+    assert f"module: .{endpoint_name}" in root_docstring
     assert _INLINE_OPENAPI_PATH in root_docstring
     assert "List posts for a user." in root_docstring
